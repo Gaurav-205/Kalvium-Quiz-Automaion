@@ -1,0 +1,9 @@
+# Login session for the bot's Chrome profile: never commit
+browser_profile/
+# Run output (may contain quiz content)
+logs/
+snapshots/
+errors/
+__pycache__/
+.pytest_cache/
+*.pyc
