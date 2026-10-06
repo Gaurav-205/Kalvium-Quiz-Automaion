@@ -368,7 +368,8 @@ const overlay = (html) => { const m = document.createElement('div'); m.className
 const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
   body: JSON.stringify({lb: T.lb, lu: T.lu, ...body})}).then(r => r.json());
 document.querySelector('[data-ws-start]').onclick = () => {
-  const c = overlay('<div class="modal-box"><p>Start the assignment now?</p><button class="btn" id="wc">Cancel</button><button class="btn" id="wp">Proceed</button></div>');
+  const c = overlay('<div class="modal-box"><p>' + (T.prev ? 'Your best score stays on record. Retake?' : 'Start the assignment now?') +
+    '</p><button class="btn" id="wc">Cancel</button><button class="btn" id="wp">Proceed</button></div>');
   c.querySelector('#wc').onclick = () => c.remove();
   c.querySelector('#wp').onclick = () => { c.remove(); open(); };
 };
@@ -381,6 +382,7 @@ function open() {
     <div class="actions"><button class="btn" id="save">Save</button><button class="btn" id="psr">Pre-submission Review</button>
     <button class="btn" id="submit" disabled>Submit</button></div><p class="status"></p></div>`);
   const ta = w.querySelector('textarea'), status = w.querySelector('.status'), submit = w.querySelector('#submit');
+  ta.value = T.prev || '';   // a retake reopens the last submitted answer
   w.querySelector('#close').onclick = () => w.remove();
   w.querySelector('#save').onclick = () => post('/api/save', {answer: ta.value}).then(() => { status.textContent = 'Draft saved'; });
   w.querySelector('#psr').onclick = () => {
@@ -670,13 +672,14 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
 
     def workspace_doc(self, lb, lu, spec):
         submitted = self.portal.tasks.get((lb, lu))
+        data = {"lb": lb, "lu": lu, "brief": spec["brief"], "prev": (submitted or {}).get("answer", "")}
         if submitted:
-            return ("<div class='result'><p>Well done! You've completed this assignment successfully.</p>"
-                    "<p>Best Score</p><p>9/10</p><button class='btn'>Retake Assignment</button></div>")
-        data = {"lb": lb, "lu": lu, "brief": spec["brief"]}
-        return ('<div class="intro"><h3>Assignment</h3><p>Graded out of 10.</p>'
-                '<button class="btn" data-ws-start>Start Assignment</button></div>'
-                f'<script>window.TASK={json.dumps(data)};</script><script>{WORKSPACE_ENGINE}</script>')
+            head = ("<div class='result'><p>Well done! You've completed this assignment successfully.</p>"
+                    "<p>Best Score</p><p>9/10</p><button class='btn' data-ws-start>Retake Assignment</button></div>")
+        else:
+            head = ('<div class="intro"><h3>Assignment</h3><p>Graded out of 10.</p>'
+                    '<button class="btn" data-ws-start>Start Assignment</button></div>')
+        return f'{head}<script>window.TASK={json.dumps(data)};</script><script>{WORKSPACE_ENGINE}</script>'
 
     def task_doc(self, lb, lu):
         spec = TASKS[(lb, lu)]

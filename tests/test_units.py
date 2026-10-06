@@ -239,6 +239,64 @@ def test_text_already_in_a_box(tmp_path):
     assert drafts[1].value == "drafted answer" and s.llm.specs[0].existing == template
 
 
+def test_text_in_a_box_without_a_word_limit_is_a_draft_and_a_retake_ignores_it(tmp_path):
+    s = solver(tmp_path)
+    old = " ".join(["previous"] * 40)          # e.g. the low-scoring answer a Retake reopens
+    brief = "Problem Statement\nWrite a case study on machine consciousness."
+    drafts = s._draft(group(field(0, "textarea", "", "", old, kind="text")), CTX, brief)
+    assert drafts[0].source == "AI draft" and s.llm.specs[-1].existing == old and s.llm.specs[-1].words is None
+    s.fresh = True
+    s._draft(group(field(0, "textarea", "", "", old, kind="text")), CTX, brief)
+    assert s.llm.specs[-1].existing == ""
+
+
+def test_a_wildcard_link_only_fills_the_kind_it_names(tmp_path):
+    from kalbot.tasks import Manual
+    s = solver(tmp_path, "- lu: '*'\n  pr: https://github.com/me/r/pull/1\n")
+    with pytest.raises(Manual, match="link"):
+        s._draft(group(field(0, "input", "Figma design link", kind="link", link_kind="link")), CTX, "")
+    s = solver(tmp_path, "- lu: '1.4'\n  link: https://figma.com/file/x\n")
+    assert s._draft(group(field(0, "input", "Figma design link", kind="link", link_kind="link")),
+                    CTX, "")[0].value == "https://figma.com/file/x"
+
+
+def test_field_classification(tmp_path):
+    s = solver(tmp_path)
+    code = s._classify(field(0, "textarea", "Type your answer", "Write a program that reads n and prints n!"))
+    assert code.kind == "text"            # not monospace: prose box
+    f = field(0, "textarea", "Type your answer", "Write a program that reads n and prints n!")
+    f.mono = True
+    assert s._classify(f).kind == "code"
+    f = field(0, "textarea", "Type your answer", "Explain what this program does.")
+    f.mono = True
+    assert s._classify(f).kind == "text"
+    md = field(0, "textarea", "", "Write a program design note.")
+    md.mono, md.md = True, True
+    assert s._classify(md).kind == "text"
+    pr = field(0, "input", "Enter your pull request | pr", "Pull Request")
+    pr.type = "text"
+    assert (s._classify(pr).kind, pr.link_kind) == ("link", "pr")
+    vid = field(0, "input", "Paste Drive link | videoLink")
+    vid.type = "text"
+    assert (s._classify(vid).kind, vid.link_kind) == ("link", "video")
+
+
+@pytest.mark.parametrize("result, failed", [
+    ({"found": True, "score": 2, "total": 5, "fail": True}, True),
+    ({"found": True, "score": 4, "total": 5, "fail": True}, False),     # "try again" text, but 80%
+    ({"found": True, "score": 5, "total": 9, "pass": True}, False),     # the portal says passed (50% mark)
+    ({"found": True, "percent": 40}, True),
+    ({"found": True, "fail": True}, True),
+    ({"found": True, "checks_only": True}, False),
+    ({"found": False}, False),
+])
+def test_quiz_pass_or_fail(result, failed):
+    from kalbot.quiz import QuizSolver
+    q = QuizSolver.__new__(QuizSolver)
+    q.opts = {"pass_fraction": 0.6, "retake_completed": True}   # --retake doesn't raise the pass mark
+    assert q._failed(result) is failed
+
+
 def test_linkbook_wildcard_entries_apply_everywhere_but_lose_to_specific_ones(tmp_path):
     p = tmp_path / "submissions.yaml"
     p.write_text("- livebook: integrated\n  lu: '*'\n  pr: https://github.com/me/r/pull/1\n"

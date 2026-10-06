@@ -343,13 +343,26 @@
   }
   K.mainText = () => mainText();
 
-  // The page shows a perfect score: "Score: 5/5", a bare "10/10" under "Best Score", "100%", "Max score".
+  // The page shows a perfect score: "Score: 5/5", "5/5 correct", "Best Score" with "10/10" on the next
+  // line, "Mastery" / "100%", "Max score". Only values that belong to a score label count, so counters
+  // like "Attempts 1/1" or "Answered 5/5" don't.
+  const SCORE_LABEL = /\b(score|scored|marks?|result|points|mastery|correct)\b/i;
+  const VALUE_LINE = /^(\d+(?:\.\d+)?\s*(?:\/|out of)\s*\d+(?:\.\d+)?|\d{1,3}(?:\.\d+)?\s*%)$/i;
+  const perfect = (s) => {
+    const m = s.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
+    if (m) return +m[2] > 0 && +m[1] === +m[2];
+    return /(^|[^\d.])100(\.0+)?\s*%/.test(s);
+  };
   function maxScore(text) {
     if (/max(imum)?\s*score(?!\s*[:\-]?\s*\d)/i.test(text)) return true;
-    for (const l of text.split('\n')) {
-      if (!/(score|scored|marks?|result|points)/i.test(l) && !/^\s*\d+\s*\/\s*\d+\s*$/.test(l)) continue;
-      const m = l.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
-      if ((m && +m[2] > 0 && +m[1] === +m[2]) || /(^|[^\d.])100\s*%/.test(l)) return true;
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const k = lines[i].match(SCORE_LABEL);
+      if (!k) continue;
+      const after = lines[i].slice(k.index);
+      if (/\d/.test(after)) { if (perfect(after)) return true; continue; }       // "Score: 5/5"
+      if (/\d/.test(lines[i])) { if (perfect(lines[i])) return true; continue; }   // "5/5 correct"
+      if (lines[i].length <= 40 && VALUE_LINE.test(lines[i + 1] || '') && perfect(lines[i + 1])) return true;
     }
     return false;
   }
@@ -474,12 +487,15 @@
   const DIALOGS = '[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"], div.fixed.inset-0';
   const WORKSPACE = '[data-kqb-field], .monaco-editor, .cm-editor, .CodeMirror, .ace_editor, textarea, ' +
     '[contenteditable="true"], input[type="url"], input[type="text"]';
+  const OPTIONISH = '#test-component, [data-kqb-opt], input[type="radio"], input[type="checkbox"], [role="radio"], ' +
+    '[role="checkbox"], [role="option"], [role="radiogroup"]';
   K.confirm = (cfg, texts) => {
     clearMarks('data-kqb-btn', 'confirm');
     const dialogs = [...document.querySelectorAll(DIALOGS)].filter(visible);
     for (const d of dialogs.reverse()) {
       if (d.querySelector('[data-kqb-clicked]') || (K.root && d.contains(K.root))) continue;
       if (d.querySelector(WORKSPACE)) continue;   // the assignment workspace is not a confirmation
+      if (d.querySelector(OPTIONISH) || PROGRESS.test(textOf(d).slice(0, 3000))) continue;   // a quiz, not a confirmation
       const b = buttons(texts || cfg.confirm, d).filter((x) => !isDisabled(x) && !x.hasAttribute('data-kqb-clicked'));
       if (b.length) { mark(b[0], 'data-kqb-btn', 'confirm'); return true; }
     }
@@ -870,7 +886,18 @@
         const d = distUp(c.el, b);
         if (d < sd) { sd = d; sb = b; }
       }
-      if (!sb || sd > 12) continue;
+      if (!sb || sd > 12) {
+        // a full-screen workspace may put Submit in its header, above the editor
+        const box = c.el.closest('div.fixed.inset-0, [role="dialog"], [aria-modal="true"]');
+        sb = null;
+        sd = Infinity;
+        for (const b of box ? submits : []) {
+          if (!box.contains(b)) continue;
+          const d = distUp(c.el, b);
+          if (d < sd) { sd = d; sb = b; }
+        }
+        if (!sb) continue;
+      }
       if (!usedSubmits.includes(sb)) usedSubmits.push(sb);
       let rb = null;
       if (c.tag !== 'input') {
@@ -935,23 +962,29 @@
     return out;
   };
 
-  // The Pre-submission Review checklist: unticked boxes and the button that closes it.
+  // The Pre-submission Review checklist: unticked boxes and the button that completes it. Only inside
+  // the review's own dialog, or else the assignment workspace overlay; never the whole page.
+  const REVIEW_GO = ['Proceed', 'Done', 'Continue', 'Confirm', 'Submit Review', 'OK', 'Yes'];   // by priority
   K.checklist = (cfg) => {
     clearMarks('data-kqb-chk');
     clearMarks('data-kqb-btn', 'proceed');
     const open = [...document.querySelectorAll(DIALOGS)].filter(visible).reverse();
-    // a review dialog of its own, else the assignment workspace overlay, else the page
-    const scope = open.find((d) => !d.querySelector(WORKSPACE) &&
-      (d.querySelector('input[type="checkbox"], [role="checkbox"]') || buttons(cfg.proceed, d).length)) ||
-      open.find((d) => d.querySelector('[data-kqb-field]')) || document;
+    const own = open.find((d) => !d.querySelector(WORKSPACE) &&
+      (d.querySelector('input[type="checkbox"], [role="checkbox"]') || buttons(REVIEW_GO, d).length));
+    const scope = own || open.find((d) => d.querySelector('[data-kqb-field]'));
+    if (!scope) return { boxes: 0, proceed: false, inDialog: false, scope: false };
     const boxes = [...scope.querySelectorAll('input[type="checkbox"], [role="checkbox"]')].filter((c) =>
       !c.closest('[data-kqb-opt], [data-kqb-field], nav, header, footer, aside') && !c.disabled &&
       (c.matches('input') ? !c.checked : c.getAttribute('aria-checked') !== 'true') &&
       (visible(c) || (c.labels && c.labels[0] && visible(c.labels[0]))));
     boxes.forEach((c, i) => mark(c, 'data-kqb-chk', i));
-    const go = buttons([...cfg.proceed, 'Close'], scope === document ? undefined : scope).filter((b) => !isDisabled(b));
-    if (go.length) mark(go[0], 'data-kqb-btn', 'proceed');
-    return { boxes: boxes.length, proceed: go.length > 0, inDialog: scope !== document && !scope.querySelector(WORKSPACE) };
+    let go = null;
+    for (const t of [...REVIEW_GO, ...(own ? ['Close'] : [])]) {   // 'Close' only for the review's own dialog
+      go = buttons([t], scope).find((b) => !isDisabled(b) && b.tagName !== 'A');
+      if (go) break;
+    }
+    if (go) mark(go, 'data-kqb-btn', 'proceed');
+    return { boxes: boxes.length, proceed: !!go, inDialog: !!own, scope: true };
   };
 
   K.fieldValue = (i) => valueOf(fieldEl(i));

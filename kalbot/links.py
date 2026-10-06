@@ -90,10 +90,12 @@ class LinkBook:
             entries.append(e)
         return cls(entries, path, problems)
 
-    def lookup(self, livebook: str, lu_number: str, lu_title: str) -> dict[str, str]:
+    def lookup(self, livebook: str, lu_number: str, lu_title: str, wildcard: bool = True) -> dict[str, str]:
         """Links for one LU. Entries for that LU win over `lu: "*"` entries (links for every LU)."""
         out: dict[str, str] = {}
-        ordered = [e for e in self.entries if e.get("lu") != "*"] + [e for e in self.entries if e.get("lu") == "*"]
+        ordered = [e for e in self.entries if e.get("lu") != "*"]
+        if wildcard:
+            ordered += [e for e in self.entries if e.get("lu") == "*"]
         for e in ordered:
             lb = e.get("livebook", "").lower()
             if lb and lb not in (livebook or "").lower():

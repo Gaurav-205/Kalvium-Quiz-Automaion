@@ -20,7 +20,7 @@ log = logging.getLogger("kalbot.quiz")
 
 @dataclass
 class QuizOutcome:
-    status: str          # submitted | dry_run | already_done | no_quiz
+    status: str          # submitted | dry_run | needs_retake | checks_only | already_done | no_quiz
     result: str = ""
     attempts: int = 0
     items: list[dict] = field(default_factory=list)
@@ -102,10 +102,18 @@ class QuizSolver:
         """--retake: a submitted quiz without a perfect score that offers Retake."""
         return bool(self.opts.get("retake_completed") and st.get("retake") and not st.get("maxScore"))
 
-    def run(self, page, ctx: dict, material: str = "") -> QuizOutcome:
+    def run(self, page, ctx: dict, material: str = "", fresh: bool = False) -> QuizOutcome:
+        """fresh: the caller has just clicked Retake, so old score text on the page means nothing."""
         frame, st, completed = self.locate(page)
+        if fresh:
+            completed = False
         if (completed or st["kind"] == "none") and self.can_improve(st):
-            self.ui.step("Submitted before without a perfect score; retaking (--retake).", indent=1)
+            if self.dry_run and not self.opts.get("dry_run_click_start"):
+                self.ui.note("[dry-run] submitted without full marks; Retake not clicked "
+                             "(it would replace the recorded attempt)", indent=1)
+                self.runlog.row(event="dry_run", kind="quiz", note="retake not clicked", url=page.url, **ctx)
+                return QuizOutcome("needs_retake")
+            self.ui.step("Submitted before without full marks; retaking (--retake).", indent=1)
             frame, st = self._retake(page)
         elif completed:
             return QuizOutcome("already_done")
@@ -140,6 +148,8 @@ class QuizSolver:
             answers, items, result = self._one_attempt(page, frame, st, ctx, attempt, previous, material)
             if self.dry_run:
                 return QuizOutcome("dry_run", items=items)
+            if (result or {}).get("checks_only"):
+                return QuizOutcome("checks_only", result["snippet"], attempt, outcome.items + items)
             outcome = QuizOutcome("submitted", describe(result), attempt, outcome.items + items)
             (self.ui.ok if not self._failed(result) else self.ui.warn)(
                 f"Result (attempt {attempt}): {outcome.result}", indent=1)
@@ -158,14 +168,16 @@ class QuizSolver:
         return outcome
 
     def _failed(self, r: dict | None) -> bool:
-        if not r or not r.get("found"):
+        if not r or not r.get("found") or r.get("checks_only"):
             return False
-        frac = 1.0 if self.opts.get("retake_completed") else float(self.opts.get("pass_fraction", 0.6))
-        if r.get("score") is not None and r.get("total"):
+        if r.get("pass"):              # "Congratulations, you passed" (pass marks differ per quiz)
+            return False
+        frac = float(self.opts.get("pass_fraction", 0.6))
+        if r.get("score") is not None and r.get("total"):   # a score beats generic "try again" text
             return r["score"] / r["total"] < frac
         if r.get("percent") is not None:
             return r["percent"] < frac * 100
-        return bool(r.get("fail")) and not r.get("pass")
+        return bool(r.get("fail"))
 
     def _retake(self, page):
         def has_retake(f) -> bool:
@@ -197,6 +209,7 @@ class QuizSolver:
         prev_fp = None
         course = f"{ctx['livebook']} - LU {ctx['lu']} {ctx['lu_title']}".strip()
         max_q = int(self.opts.get("max_questions_per_quiz", 12))
+        progress = None   # [n, total] of the last question, when the page shows it
         for n in range(1, max_q + 1):
             if n > 1:
                 frame, st = self._wait_next_question(page, frame, prev_fp)
@@ -214,12 +227,14 @@ class QuizSolver:
                     elif st.get("submitBtn"):
                         return answers, items, self._submit(page, frame)
                     elif st["kind"] != "question":
+                        if progress and progress[1] and progress[0] < progress[1]:
+                            raise UnexpectedState(f"question {n} of {progress[1]} did not appear")
                         self.ui.note(f"Answered {n - 1} check question(s); no graded quiz followed.", indent=1)
-                        return answers, items, {"found": True, "score": None, "total": None, "percent": None,
-                                                "pass": True, "fail": False, "fresh": [],
-                                                "snippet": f"{n - 1} check questions answered"}
+                        return answers, items, {"found": True, "checks_only": True, "fresh": [],
+                                                "snippet": f"answered {n - 1} ungraded check question(s)"}
 
-            prog = st.get("progress") or [n, None]
+            progress = st.get("progress")
+            prog = progress or [n, None]
             q = Question(text=st["question"], options=st["options"], multi=bool(st["multi"]),
                          code=st.get("code") or [], number=prog[0], total=prog[1])
             if n == 1 and self.opts.get("snapshot_quiz_pages"):

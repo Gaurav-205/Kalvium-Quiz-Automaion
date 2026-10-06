@@ -21,7 +21,7 @@ You review every written, coding and link submission before it goes in, unless y
 | Assignment | What kalbot does |
 |---|---|
 | **Quiz (MCQ)** | Reads each question, code block and option (single or multi-select), asks the LLM with the LU's reading material as context, clicks and *verifies* the choice, moves on, submits, reads the score, and retakes once if it failed. Answers a lesson's ungraded check questions on the way to its graded quiz. With `--retake`, also retakes submitted quizzes that don't have full marks. |
-| **Written / subjective** | Opens the assignment (*Start / Resume Assignment* → *Proceed*), drafts each answer box from the problem statement and the LU material within any stated word limit, in a student voice you can tune, using Markdown in Markdown editors. Clicks *Save*, completes the *Pre-submission Review* checklist, submits and reads the score. A finished answer already in a box is kept; a template or half-written draft is filled in. |
+| **Written / subjective** | Opens the assignment (*Start / Resume Assignment* → *Proceed*), drafts each answer box from the problem statement and the LU material within any stated word limit, in a student voice you can tune, using Markdown in Markdown editors. Clicks *Save*, completes the *Pre-submission Review* checklist, submits and reads the score. Text already in a box is kept only if it meets the stated word limit; otherwise it's the starting point for the draft. |
 | **Coding** | Writes the solution into the editor (Monaco, CodeMirror 5/6, Ace or a plain textarea) in the selected language (CPP, Python, ...), keeping the starter code's signatures, or as a complete stdin/stdout program when there is none. If there's a **Run / Test** button, it runs the tests, feeds failures back to the LLM and fixes the code (twice by default) before submitting. |
 | **GitHub repo link** | Uses the link from your `submissions.yaml`, or, with a `GITHUB_TOKEN`, generates a small project, shows you its files, creates the repo and submits its URL. Re-runs reuse the same repo. |
 | **Live / deployed link** | From `submissions.yaml`, or GitHub Pages for a plain HTML/CSS/JS project kalbot created. |
@@ -108,7 +108,7 @@ example `setx GEMINI_API_KEY ...`) work too and take precedence.
 | `kalbot run --only quiz,written` | Only these kinds: `quiz`, `written`, `coding`, `links` |
 | `kalbot run --livebook "web" --lu 2.3` | One livebook / one LU (also re-checks an LU marked complete) |
 | `kalbot run --auto` | Hands-free: don't stop to review drafts |
-| `kalbot run --retake` | Also retake submitted quizzes without full marks (opens completed LUs too) |
+| `kalbot run --retake` | Also retake submitted quizzes and assignments without full marks (Retake → Proceed, then a fresh answer); opens completed LUs too. A dry run never clicks Retake |
 | `kalbot run --semester 6` | Override `portal.semester` |
 | `kalbot discover` | Read-only exploration, snapshots, selectors |
 | `kalbot login` | Plain-Chrome login fallback |
@@ -183,7 +183,7 @@ needs what you change. Every option is documented in
 | Prefix or privatise created repos | `github.repo_prefix`, `github.private` |
 | Slow portal | `timeouts.*` |
 | Gemini free tier rate-limits you | `llm.min_seconds_between_calls` (5 by default), `llm.fallback_models` |
-| Retake quizzes without full marks every run | `run.retake_completed: true` |
+| Retake work without full marks every run | `run.retake_completed: true` (*Retake Quiz / Retake Assignment* are never clicked otherwise) |
 
 ## Output
 

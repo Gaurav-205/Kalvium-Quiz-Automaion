@@ -127,12 +127,12 @@ texts:                             # exact visible button texts (case/arrows/ico
   start: [Start Quiz, Start the Quiz, Start, Begin Quiz, Begin, Take Quiz, Take the Quiz,
           Attempt Quiz, Attempt, Attempt Now, Start Assessment, Start Now, Start Assignment,
           Attempt Assignment, Start Task, Solve, Solve Now, Start Coding, Resume Quiz,
-          Resume Assignment, Retake Assignment]
+          Resume Assignment]
   next: [Next, Next Question, Save & Next, Save and Next]
   submit: [Submit, Submit Quiz, Submit Answers, Submit Answer, Submit Assessment, Finish, Finish Quiz]
   confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK', Submit Anyway, Proceed]
   proceed: [Proceed, Start, Continue, 'Yes', Confirm, 'OK', Begin, Done]   # confirmations after Start / review
-  retake: [Retake, Retake Quiz, Try Again, Reattempt, Re-attempt, Attempt Again]
+  retake: [Retake, Retake Quiz, Try Again, Reattempt, Re-attempt, Attempt Again, Retake Assignment]   # only with --retake
   previous: [Previous, Prev, Back, Previous Question]
   # in-page tabs that may hide the quiz or assignment (clicking a tab only shows content)
   tabs: [Quiz, Quizzes, Assessment, MCQ, Knowledge Check, Test Yourself, Practice Quiz,
@@ -194,11 +194,12 @@ patterns:
   task_success: ['\bsubmitted\b', '\bsuccess', 'thank you', '\breceived\b', '\bsaved\b', 'well done', 'great job']
   task_error: ['\brequired\b', '\binvalid\b', 'must (be|contain|include)', 'please (enter|provide|fill|add)', 'too (short|long)', '\bnot a valid\b']
   # link fields: which link a box wants (label, placeholder and the text above it)
-  link_field: ['\burl\b', '\blinks?\b', 'https?://', 'github', '\brepo(sitory)?\b', '\bvideo\b', '\bloom\b', 'youtu',
-               '\bdeploy', '\bhosted\b', '\bwebsite\b', '\blive\b']
+  link_field: ['\burl\b', '\blinks?\b', 'https?://', 'github', '\brepo(sitory)?\b', 'video', '\bloom\b', 'youtu',
+               '\bdeploy', '\bhosted\b', '\bwebsite\b', '\blive\b', '\bpr\b', 'pull request', '\bdrive\b']
   link_pr: ['pull request', '\bpr\b']
   link_github: ['github', '\brepo(sitory)?\b', '\bgit\b']
-  link_video: ['\bvideo\b', '\bloom\b', 'youtu', 'vimeo', '\brecording\b', '\bscreencast\b', 'walk-?through']
+  link_video: ['video', '\bloom\b', 'youtu', 'vimeo', '\brecording\b', '\bscreencast\b', 'walk-?through',
+               'drive\.google', '\bdrive\b']
   link_live: ['\blive\b', '\bdeploy', '\bhosted\b', 'netlify', 'vercel', 'render\.com', 'github\.io', 'github pages', '\bwebsite\b',
               '\bsite\b', '\bdemo (link|url)\b', '\bapp (link|url)\b', '\bweb ?app\b']
   # coding: Run/Test output

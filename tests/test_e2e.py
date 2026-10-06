@@ -228,11 +228,25 @@ def test_8_full_run(env, capsys):
 
 
 def test_9_retake_improves_a_submitted_quiz(env, capsys):
+    before = state(env)
+    assert run(env, "--dry-run", "--retake", "--livebook", "data", "--lu", "1.2") == 0
+    assert "Retake not clicked" in capsys.readouterr().out
+    assert state(env) == before, "a dry run must not click Retake (it replaces the recorded attempt)"
     assert run(env, "--retake", "--livebook", "data", "--lu", "1.2") == 0   # 4/5 before; Retake asks "Proceed"
     assert submitted_scores(env, "2506/12") == [5]
     assert run(env, "--retake", "--livebook", "data", "--lu", "1.3") == 0   # already 5/5: left alone
     assert submitted_scores(env, "2506/13") == []
     assert "full marks" in capsys.readouterr().out
+
+
+def test_9b_retake_assignment_writes_a_new_answer(env, capsys):
+    old = state(env)["tasks"]["2505/25"]["answer"]
+    assert run(env, "--auto", "--livebook", "philosophy", "--lu", "2.5") == 0    # Best Score 9/10, no --retake
+    assert state(env)["tasks"]["2505/25"]["answer"] == old and "Retake not" not in capsys.readouterr().out
+    assert run(env, "--auto", "--retake", "--livebook", "philosophy", "--lu", "2.5") == 0
+    fields = [r for r in latest_csv(env) if r["event"] == "task_field"]
+    assert fields and fields[0]["note"] == "AI draft", "the old answer reopened by Retake is not kept"
+    assert "retaking" in capsys.readouterr().out
 
 
 def test_10_nothing_left(env, capsys):

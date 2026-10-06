@@ -55,6 +55,11 @@ class LUView:
         return self.tasks.open if self.tasks else []
 
     @property
+    def editable_groups(self) -> list:
+        """Assignments with boxes you can type in (after a Retake the old "done" text is stale)."""
+        return [g for g in self.tasks.groups if not all(f.locked for f in g.fields)] if self.tasks else []
+
+    @property
     def ready(self) -> bool:
         return self.quiz_kind in ("question", "start") or self.quiz_done or bool(self.quiz.get("retake")) \
             or bool(self.tasks)
@@ -265,15 +270,17 @@ class Navigator:
         """An LU opens on an overview card; its lessons, quizzes and assignments are under /lessons."""
         if urlparse(self.page.url).path.rstrip("/").endswith("/lessons"):
             return
-        btn = self.page.locator('button[aria-label="Go to Lessons"], a[href$="/lessons"], '
-                                'button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")').first
         try:
-            if btn.is_visible(timeout=3000):
+            if re.search(r"/livebooks/\d+/[0-9a-f-]{20,}$", urlparse(self.page.url).path.rstrip("/")):
+                self.ops.goto(self.page.url.split("?")[0].rstrip("/") + "/lessons")
+                return
+            btn = self.page.locator('button[aria-label="Go to Lessons"], a[href$="/lessons"], '
+                                    'button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")').first
+            # the SPA renders late: wait for the button, unless the LU's content shows up first
+            if self.ops.poll(lambda: btn.is_visible() or self.inspect().ready, 3000) and btn.is_visible():
                 btn.click()
                 self.ops.settle()
                 self.ops.pause()
-            elif re.search(r"/livebooks/\d+/[0-9a-f-]{20,}$", urlparse(self.page.url).path.rstrip("/")):
-                self.ops.goto(self.page.url.split("?")[0].rstrip("/") + "/lessons")
         except PWError as e:
             log.debug("lessons navigation: %s", first_line(e))
 
@@ -323,6 +330,24 @@ class Navigator:
         self.ops.confirm(self.cfg["texts"]["proceed"], "confirm Start")   # "Proceed?" after Start Assignment
         return self._started()
 
+    def press_retake(self) -> LUView:
+        """Click Retake (a quiz or an assignment), confirm, and wait for questions or answer boxes."""
+        frame = next((f for f in self.ops.frames() if self.quiz.state(f).get("retake")), None)
+        if frame is None:
+            raise UnexpectedState("Retake button disappeared")
+        self.ops.click(frame, '[data-kqb-btn="retake"]', "Retake")
+        self.ops.pause()
+
+        def ready():
+            self.ops.confirm(self.cfg["texts"]["proceed"], "confirm Retake")
+            v = self.inspect()
+            return v if v.quiz_kind in ("question", "start") or v.editable_groups else None
+
+        v = self.ops.poll(ready, self.t["question_change_ms"])
+        if v is None:
+            raise UnexpectedState("clicked Retake but no quiz or assignment appeared")
+        return self.press_start() if v.quiz_kind == "start" and not v.editable_groups else v
+
     def press_start(self) -> LUView:
         """Click Start (quiz or assignment) until a question or an answer box appears."""
         for _ in range(3):   # some have an instructions screen with a second Start
@@ -349,7 +374,20 @@ class Navigator:
         material = self.lu_material()
         handled = False
 
-        if v.quiz_kind == "start" and not v.quiz_done and not v.open_groups and not (v.tasks and v.tasks.done):
+        improve = v.quiz_done and self.quiz.can_improve(v.quiz)   # --retake, no full marks, Retake offered
+        if improve:
+            if self.dry_run and not self.cfg["run"]["dry_run_click_start"]:
+                self.ui.note("[dry-run] submitted without full marks; Retake not clicked "
+                             "(it would replace the recorded attempt)", indent=1)
+                self.runlog.row(event="dry_run", note="retake not clicked", url=self.page.url, **ctx)
+                self.runlog.add(ctx, "preview", lu.type_hint, "retake available (not clicked in dry-run)")
+                self.handled += 1
+                return
+            self.ui.step("Submitted before without full marks; retaking (--retake).", indent=1)
+            v = self.press_retake()
+            material = self.lu_material() or material
+
+        if v.quiz_kind == "start" and not v.quiz_done and not v.open_groups:
             if lu.type_hint == "quiz" and not self.enabled["quiz"]:
                 self.runlog.add(ctx, "skipped", "quiz", "quiz not selected (--only)")
                 return
@@ -363,13 +401,12 @@ class Navigator:
             v = self.press_start()
             material = self.lu_material() or material
 
-        improve = v.quiz_done and self.quiz.can_improve(v.quiz)
-        if (v.quiz_kind == "question" and not v.quiz_done) or improve:
+        if v.quiz_kind == "question" and (not v.quiz_done or improve):
             handled = True
             if not self.enabled["quiz"]:
                 self.runlog.add(ctx, "skipped", "quiz", "quiz not selected (--only)")
             else:
-                self._record_quiz(ctx, self.quiz.run(self.page, ctx, material))
+                self._record_quiz(ctx, self.quiz.run(self.page, ctx, material, fresh=improve))
                 v = self.inspect() if not self._limit_reached() else v
         elif v.quiz_done and v.quiz_kind != "question":
             perfect = " with full marks" if v.quiz.get("maxScore") else ""
@@ -377,7 +414,7 @@ class Navigator:
 
         outcomes = []
         if v.tasks and v.tasks.groups and not self._limit_reached():
-            outcomes = self.tasks.run(self.page, ctx, material, v.tasks)
+            outcomes = self.tasks.run(self.page, ctx, material, v.tasks, fresh=improve)
             for o in outcomes:
                 self._record_task(ctx, o)
         if handled or any(o.status != "done" for o in outcomes):
@@ -408,6 +445,11 @@ class Navigator:
         elif out.status == "dry_run":
             self.handled += 1
             self.runlog.add(ctx, "preview", "quiz", "question 1 read (dry-run)", self.page.url, out.items)
+        elif out.status == "needs_retake":
+            self.handled += 1
+            self.runlog.add(ctx, "preview", "quiz", "retake available (not clicked in dry-run)", self.page.url)
+        elif out.status == "checks_only":
+            self.runlog.add(ctx, "done", "quiz", out.result, self.page.url, out.items)
         elif out.status == "already_done":
             self.runlog.add(ctx, "done", "quiz", "already submitted", self.page.url)
         else:

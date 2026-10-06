@@ -29,6 +29,9 @@ TASK_KIND = {"text": "written", "short": "written", "code": "coding", "link": "l
 QUESTION_LIKE = re.compile(r"\?|\b(answer|output|result|explain|what|why|how|which|describe|define)\b", re.I)
 CODE_WORDS = re.compile(r"\b(code|program|function|implement|algorithm|"
                         r"write a (python|java|c\+\+|javascript|c) )", re.I)
+# "Write a program that...", "Implement the function..." (not "Explain what this program does")
+CODE_TASK = re.compile(r"\b(write|implement|complete|code|solve)\b[^.\n]{0,40}\b(function|program|code|class|"
+                       r"method|solution|script|query)\b", re.I)
 SUFFIX = {"python": ".py", "python3": ".py", "java": ".java", "javascript": ".js", "js": ".js",
           "typescript": ".ts", "c++": ".cpp", "cpp": ".cpp", "c": ".c", "go": ".go", "rust": ".rs",
           "ruby": ".rb", "php": ".php", "sql": ".sql", "html": ".html", "css": ".css", "kotlin": ".kt"}
@@ -220,6 +223,7 @@ class TaskSolver:
         self.dry_run = dry_run
         self.review_on = review
         self.enabled = enabled
+        self.fresh = False   # set per assignment: just retaken, so old answers in the boxes are ignored
         self.pat = cfg["patterns"]
         self.t = cfg["timeouts"]
         self.drafts_dir = run_dir / "drafts"
@@ -229,7 +233,7 @@ class TaskSolver:
 
     def _classify(self, f: Field) -> Field:
         if f.tag == "editor" or (f.tag == "textarea" and not f.md and (
-                f.codeHint or (f.mono and CODE_WORDS.search(f.label)))):
+                f.codeHint or (f.mono and (CODE_WORDS.search(f.label) or CODE_TASK.search(f.prompt[-400:]))))):
             f.kind = "code"
         elif f.tag == "input":
             if linkmod.is_link_field(f.label, f.prompt, f.type, self.pat):
@@ -287,7 +291,7 @@ class TaskSolver:
 
     # ------------------------------------------------------------------ main entry
 
-    def run(self, page, ctx: dict, material: str, view: TaskView) -> list[TaskOutcome]:
+    def run(self, page, ctx: dict, material: str, view: TaskView, fresh: bool = False) -> list[TaskOutcome]:
         outcomes: list[TaskOutcome] = []
         seen: set[tuple] = set()
         for _ in range(8):   # one assignment at a time; the page may re-render after each Submit
@@ -295,7 +299,7 @@ class TaskSolver:
             if g is None:
                 break
             seen.add(g.keys)
-            if g.done:
+            if g.done and not (fresh and not all(f.locked for f in g.fields)):
                 outcomes.append(TaskOutcome("done", g.kind, "already submitted"))
                 continue
             off = [k for k in g.kinds if not self.enabled.get(k, True)]
@@ -303,15 +307,16 @@ class TaskSolver:
                 outcomes.append(TaskOutcome("skipped", g.kind, f"{', '.join(off)} not selected (--only)"))
                 continue
             try:
-                outcomes.append(self._one(page, view.frame, g, ctx, material))
+                outcomes.append(self._one(page, view.frame, g, ctx, material, fresh))
             except Manual as m:
                 self.ui.warn(f"Needs you: {m}", indent=1)
                 outcomes.append(TaskOutcome("manual", g.kind, str(m)))
             view = self.inspect(page) or view
         return outcomes
 
-    def _one(self, page, frame, g: Group, ctx: dict, material: str) -> TaskOutcome:
+    def _one(self, page, frame, g: Group, ctx: dict, material: str, fresh: bool = False) -> TaskOutcome:
         self.ui.step(f"Assignment: {g.describe()}", indent=1)
+        self.fresh = fresh
         drafts = self._draft(g, ctx, material)
         self._save_drafts(ctx, g, drafts)
         if self.dry_run:
@@ -344,7 +349,9 @@ class TaskSolver:
     def _draft(self, g: Group, ctx: dict, material: str) -> list[Draft]:
         lb, lu, title = ctx["livebook"], ctx["lu"], ctx["lu_title"]
         course = f"{lb} - LU {lu} {title}".strip()
+        fresh = self.fresh
         given = self.linkbook.lookup(lb, lu, title)
+        own = self.linkbook.lookup(lb, lu, title, wildcard=False)   # links you gave for this LU itself
         earlier = self.state.repo(lb, lu)
         drafts = [Draft(f) for f in g.fields if not f.locked]
         drafts = [d for d in drafts if not (d.field.kind == "other" and not d.field.required
@@ -354,7 +361,7 @@ class TaskSolver:
         for d in drafts:
             f = d.field
             if f.kind == "other":
-                if f.value.strip():
+                if f.value.strip() and not fresh:
                     d.value, d.source = f.value, "already in the box"
                 elif f.required:
                     d.missing = f"needs your input for '{f.title}'"
@@ -362,12 +369,12 @@ class TaskSolver:
             if f.kind != "link":
                 continue
             k = f.link_kind
-            if f.value.strip() and not linkmod.check_url(k, f.value.strip()):
+            if f.value.strip() and not fresh and not linkmod.check_url(k, f.value.strip()):
                 d.value, d.source = f.value.strip(), "already in the box"
             elif given.get(k):
                 d.value, d.source = given[k], "submissions.yaml"
-            elif k == "link" and len(given) == 1:
-                d.value, d.source = next(iter(given.values())), "submissions.yaml"
+            elif k == "link" and len(own) == 1:   # one link for this LU: it is the one asked for
+                d.value, d.source = next(iter(own.values())), "submissions.yaml"
             elif k in ("github", "live") and earlier.get(k):
                 d.value, d.source = earlier[k], "repo from an earlier run"
             elif k == "github" and self.gh:
@@ -398,13 +405,12 @@ class TaskSolver:
             question = f.prompt if len(f.prompt) >= 80 or not brief else f"{brief}\n\n{f.prompt}".strip()
             if f.kind in ("text", "short"):
                 # a full assignment brief (or a Markdown editor) gets as much as it needs, unless it sets a limit
-                default = None if (f.md or brief) else tuple(self.cfg["written"]["default_words"])
-                words = word_limits([f"{f.label}\n{f.prompt}", material], default)
-                have = f.value.strip()
-                lo, hi = words or (1, 10 ** 6)
+                stated = word_limits([f"{f.label}\n{f.prompt}", material], None)
+                words = stated or (None if (f.md or brief) else tuple(self.cfg["written"]["default_words"]))
+                have = "" if fresh else f.value.strip()
                 n = count_words(have)
-                if (f.kind == "short" and have) or (n >= 15 and lo <= n <= hi * 1.2):
-                    d.value, d.source = have, "already in the box"   # your own finished answer
+                if (f.kind == "short" and have) or (stated and n >= 15 and stated[0] <= n <= stated[1] * 1.2):
+                    d.value, d.source = have, "already in the box"   # a finished answer that meets the limit
                     continue
                 self.ui.note(f"Writing: {f.title}", indent=2)
                 max_chars = int(f.maxlength or self.cfg["written"]["short_answer_max_chars"])
@@ -655,7 +661,7 @@ class TaskSolver:
         def find():
             for fr in self.ops.frames():
                 c = self.ops.call(fr, "checklist", self.ops.jscfg)
-                if c["boxes"] or (c["proceed"] and c["inDialog"]):
+                if c["scope"] and (c["boxes"] or (c["proceed"] and c["inDialog"])):
                     return fr, c
             return None
 
