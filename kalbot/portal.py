@@ -375,6 +375,11 @@ class Navigator:
         handled = False
 
         improve = v.quiz_done and self.quiz.can_improve(v.quiz)   # --retake, no full marks, Retake offered
+        retakes_quiz = "assignment" not in v.quiz.get("retakeText", "").lower()
+        if improve and not (self.enabled["quiz"] if retakes_quiz else
+                            any(self.enabled[k] for k in ("written", "coding", "links"))):
+            self.runlog.add(ctx, "skipped", "quiz" if retakes_quiz else "", "retake not selected (--only)")
+            return
         if improve:
             if self.dry_run and not self.cfg["run"]["dry_run_click_start"]:
                 self.ui.note("[dry-run] submitted without full marks; Retake not clicked "

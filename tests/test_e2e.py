@@ -232,6 +232,8 @@ def test_9_retake_improves_a_submitted_quiz(env, capsys):
     assert run(env, "--dry-run", "--retake", "--livebook", "data", "--lu", "1.2") == 0
     assert "Retake not clicked" in capsys.readouterr().out
     assert state(env) == before, "a dry run must not click Retake (it replaces the recorded attempt)"
+    assert run(env, "--only", "written", "--retake", "--livebook", "data", "--lu", "1.2") == 0
+    assert state(env) == before, "--only written must not retake a quiz"
     assert run(env, "--retake", "--livebook", "data", "--lu", "1.2") == 0   # 4/5 before; Retake asks "Proceed"
     assert submitted_scores(env, "2506/12") == [5]
     assert run(env, "--retake", "--livebook", "data", "--lu", "1.3") == 0   # already 5/5: left alone

@@ -35,11 +35,23 @@ def classify(label: str, prompt: str, patterns: dict) -> str:
     return "link"
 
 
+STRONG_LINK = re.compile(r"\b(url|link)\b|https?://", re.I)
+QUESTION = re.compile(r"\?|^\s*(describe|explain|what|why|how|which|who|when|where|name|list|define|write|"
+                      r"give|state|mention)\b", re.I)
+
+
 def is_link_field(label: str, prompt: str, input_type: str, patterns: dict) -> bool:
-    if input_type == "url":
+    """A box that wants a link: type=url, a link-ish label/placeholder/id, or "link"/"URL" right above it.
+
+    Words like "pull request" or "video" in a *question* ("Which git command lists the commits in a
+    pull request?") don't make a short-answer box a link field.
+    """
+    if input_type == "url" or STRONG_LINK.search(label or ""):
         return True
-    text = f"{label}\n{prompt[-300:]}"
-    return any(re.search(p, text, re.I) for p in patterns.get("link_field", []))
+    if not QUESTION.search(label or "") and any(re.search(p, label or "", re.I)
+                                                for p in patterns.get("link_field", [])):
+        return True   # a short label such as "Pull Request" or "Video", not a question that mentions one
+    return bool(STRONG_LINK.search((prompt or "")[-300:]))
 
 
 def check_url(kind: str, url: str) -> str | None:

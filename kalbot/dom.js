@@ -376,6 +376,7 @@
     const retake = buttons(cfg.retake).filter((b) => !isDisabled(b));
     out.start = start.length > 0;
     out.retake = retake.length > 0;
+    out.retakeText = retake.length ? textOf(retake[0]).slice(0, 40) : '';
     if (start.length) mark(start[0], 'data-kqb-btn', 'start');
     if (retake.length) mark(retake[0], 'data-kqb-btn', 'retake');
     const best = pickGroup(cfg);
@@ -440,11 +441,25 @@
   K.lines = () => norm(document.body ? document.body.innerText : '')
     .split('\n').map((s) => s.trim()).filter(Boolean);
 
+  // Lines of a confirmation that is still open (it has a Cancel/No button): "Once submitted, you
+  // cannot edit..." or "You attempted 5/5 questions" there is a question, not a result.
+  const CANCEL = ['Cancel', 'No', 'Go Back', 'Keep Editing', 'Not Now'];
+  function pendingLines() {
+    const out = new Set();
+    for (const d of document.querySelectorAll(DIALOGS)) {
+      if (!visible(d) || d.querySelector(WORKSPACE) || (K.root && d.contains(K.root))) continue;
+      if (!buttons(CANCEL, d).length) continue;
+      norm(d.innerText || '').split('\n').map((x) => x.trim()).filter(Boolean).forEach((x) => out.add(x));
+    }
+    return out;
+  }
+
   // Result screen: only looks at text that was NOT on the page before Submit,
   // so reading content never gets mistaken for a score.
   K.result = (cfg, before) => {
     const old = new Set(before || []);
-    const fresh = K.lines().filter((l) => !old.has(l));
+    const asking = pendingLines();
+    const fresh = K.lines().filter((l) => !old.has(l) && !asking.has(l));
     const kw = /(score|scored|marks?|result|correct|points)/i;
     const frac = /(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i;
     const pct = /(\d{1,3}(?:\.\d+)?)\s*%/;
@@ -467,13 +482,14 @@
     const verdictLines = fresh.filter((l) => !btnLabels.has(btnKey(l)));
     const text = verdictLines.join('\n');
     const fail = any(failRe, text);
-    const pass = any(passRe, text);
+    const pass = verdictLines.some((l) => any(passRe, l) && !any(failRe, l));
+    const failStrong = verdictLines.some((l) => failRe.some((re) => !/try again/i.test(re.source) && re.test(l)));
     if (!snippet) snippet = verdictLines.find((l) => any(failRe, l) || any(passRe, l)) || '';
     clearMarks('data-kqb-btn', 'retake');
     const retake = buttons(cfg.retake).filter((b) => !isDisabled(b));
     if (retake.length) mark(retake[0], 'data-kqb-btn', 'retake');
     return {
-      score, total, percent, fail, pass,
+      score, total, percent, fail, pass, failStrong,
       retake: retake.length > 0,
       snippet: snippet.slice(0, 200),
       fresh: fresh.slice(0, 15),
@@ -782,16 +798,19 @@
   }
 
   // Text right above an answer box (its question), stopping at the previous box.
+  const EDITOR_SHELL = '.w-md-editor, .EasyMDEContainer, .toastui-editor-defaultUI, .md-editor, .ql-container';
   function promptFor(el, others) {
     const picked = [];
     let total = 0;
-    let cur = el;
+    // an editor's toolbar and its live mirror of the answer (react-md-editor's <pre aria-hidden>) are not the question
+    let cur = el.closest(EDITOR_SHELL) || el;
     for (let lvl = 0; cur && cur !== document.body && lvl < 8; lvl++) {
       let found = false;
       let stop = false;
       for (let sib = cur.previousSibling; sib && !stop; sib = sib.previousSibling) {
         if (sib.nodeType === 1) {
           if (sib.matches('script, style, noscript, template') || !visible(sib)) continue;
+          if (sib.getAttribute('aria-hidden') === 'true' || sib.matches(EDITOR_SHELL)) continue;
           if (others.some((o) => o !== el && sib.contains(o))) { stop = true; break; }
         } else if (sib.nodeType !== 3) continue;
         const t = sib.nodeType === 3 ? norm(sib.textContent) : textOf(sib);
@@ -930,6 +949,7 @@
           `${cls(c.el)} ${c.el.getAttribute('name') || ''} ${c.el.getAttribute('id') || ''}`.replace(/[-_]/g, ' ')),
         language: (api && api.lang) || (langEl && (langEl.getAttribute('data-language') || langEl.getAttribute('data-mode-id'))) ||
           languageNear(c.el),
+        elId: `${c.el.getAttribute('id') || ''} ${c.el.getAttribute('name') || ''}`.trim().slice(0, 80),
         submit: usedSubmits.indexOf(sb),
         run: rb ? usedRuns.indexOf(rb) : -1,
       });
@@ -1019,7 +1039,8 @@
   // State after clicking an assignment's Submit: only text that is new counts.
   K.taskResult = (cfg, before, idx) => {
     const old = new Set(before || []);
-    const fresh = K.lines().filter((l) => !old.has(l));
+    const asking = pendingLines();
+    const fresh = K.lines().filter((l) => !old.has(l) && !asking.has(l));
     const labels = new Set([...cfg.taskSubmit, ...cfg.run, ...cfg.confirm, ...cfg.prev].map(btnKey));
     const said = fresh.filter((l) => !labels.has(btnKey(l)));
     const text = said.join('\n');

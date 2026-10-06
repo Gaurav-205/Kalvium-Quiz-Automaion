@@ -106,7 +106,7 @@ TASKS = {
                                   "learner. Write your answer (minimum 200 words).", placeholder="Type your answer")]},
     ("2505", "22"): {"fields": [   # like the portal's form: ids, placeholders, no <label>
         F("pr", "url", "Open a pull request with your data-ethics checker and paste its link.",
-          placeholder="https://github.com/...", fid="pr"),
+          placeholder="https://github.com/your-username/your-repo/pull/1", fid="pr"),
         F("video", "url", "", placeholder="Google Drive link", fid="video"),
     ]},
     ("2505", "25"): {"workspace": True, "brief": BRIEF, "fields": [
@@ -271,7 +271,7 @@ function render() {
 function confirmModal() {
   const m = document.createElement('div');
   m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.className = 'modal';
-  m.innerHTML = '<div class="modal-box"><p>Are you sure you want to submit?</p><button class="btn" id="cancel">Cancel</button><button class="btn" id="yes">Yes, Submit</button></div>';
+  m.innerHTML = `<div class="modal-box"><p>You have attempted ${Q.questions.length}/${Q.questions.length} questions.</p><p>Are you sure you want to submit?</p><button class="btn" id="cancel">Cancel</button><button class="btn" id="yes">Yes, Submit</button></div>`;
   document.body.appendChild(m);
   m.querySelector('#cancel').onclick = () => m.remove();
   m.querySelector('#yes').onclick = () => { m.remove(); submit(); };
@@ -377,12 +377,19 @@ function open() {
   const w = overlay(`<div class="workspace"><button aria-label="Close modal" class="btn" id="close">✕</button>
     <div class="brief">${T.brief.replace(/\n/g, '<br>')}</div>
     <div class="w-md-editor"><div class="w-md-editor-toolbar"><button class="btn">B</button><button class="btn">I</button></div>
+    <div class="w-md-editor-content"><div class="w-md-editor-input"><div class="w-md-editor-text">
+    <pre aria-hidden="true" class="w-md-editor-text-pre"></pre>
     <textarea class="w-md-editor-text-input" style="font-family:monospace" rows="8" cols="70" data-task-field="answer"
-      placeholder="Write your answer in Markdown"></textarea></div>
+      placeholder="Write your answer in Markdown"></textarea></div></div>
+    <div class="w-md-editor-preview wmde-markdown"></div></div></div>
     <div class="actions"><button class="btn" id="save">Save</button><button class="btn" id="psr">Pre-submission Review</button>
     <button class="btn" id="submit" disabled>Submit</button></div><p class="status"></p></div>`);
   const ta = w.querySelector('textarea'), status = w.querySelector('.status'), submit = w.querySelector('#submit');
+  const mirror = () => { w.querySelector('.w-md-editor-text-pre').textContent = ta.value;
+                         w.querySelector('.w-md-editor-preview').textContent = ta.value; };
+  ta.addEventListener('input', mirror);
   ta.value = T.prev || '';   // a retake reopens the last submitted answer
+  mirror();
   w.querySelector('#close').onclick = () => w.remove();
   w.querySelector('#save').onclick = () => post('/api/save', {answer: ta.value}).then(() => { status.textContent = 'Draft saved'; });
   w.querySelector('#psr').onclick = () => {
@@ -396,7 +403,7 @@ function open() {
   };
   submit.onclick = () => {
     if (!ta.value.trim()) { status.textContent = 'This field is required'; return; }
-    const c = overlay('<div class="modal-box"><p>Submit your assignment for grading?</p><button class="btn" id="sn">Cancel</button><button class="btn" id="sy">Yes, Submit</button></div>');
+    const c = overlay('<div class="modal-box"><p>Are you sure you want to submit? Once submitted, you cannot edit your answer.</p><button class="btn" id="sn">Cancel</button><button class="btn" id="sy">Yes, Submit</button></div>');
     c.querySelector('#sn').onclick = () => c.remove();
     c.querySelector('#sy').onclick = () => { c.remove(); status.textContent = 'Grading...';
       post('/api/task', {fields: {answer: ta.value}}).then(() => {

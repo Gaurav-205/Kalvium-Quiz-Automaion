@@ -196,10 +196,9 @@ patterns:
   # link fields: which link a box wants (label, placeholder and the text above it)
   link_field: ['\burl\b', '\blinks?\b', 'https?://', 'github', '\brepo(sitory)?\b', 'video', '\bloom\b', 'youtu',
                '\bdeploy', '\bhosted\b', '\bwebsite\b', '\blive\b', '\bpr\b', 'pull request', '\bdrive\b']
-  link_pr: ['pull request', '\bpr\b']
+  link_pr: ['pull request', '\bpr\b', 'github\.com/\S*/pull\b', '/pull/']
   link_github: ['github', '\brepo(sitory)?\b', '\bgit\b']
-  link_video: ['video', '\bloom\b', 'youtu', 'vimeo', '\brecording\b', '\bscreencast\b', 'walk-?through',
-               'drive\.google', '\bdrive\b']
+  link_video: ['video', '\bloom\b', 'youtu', 'vimeo', '\brecording\b', '\bscreencast\b', 'walk-?through']
   link_live: ['\blive\b', '\bdeploy', '\bhosted\b', 'netlify', 'vercel', 'render\.com', 'github\.io', 'github pages', '\bwebsite\b',
               '\bsite\b', '\bdemo (link|url)\b', '\bapp (link|url)\b', '\bweb ?app\b']
   # coding: Run/Test output

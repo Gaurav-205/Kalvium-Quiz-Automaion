@@ -91,3 +91,31 @@ def test_react_split_lu_numbers(page):
     pg = page('<a class="row" href="/lu/1" style="display:block"><span>2<!-- -->.<!-- -->12</span> Sprint review</a>'
               '<a class="row" href="/lu/2" style="display:block"><span>2<!-- -->.<!-- -->13</span> Retro</a>')
     assert [r["number"] for r in call(pg, "listLUs", CFG)] == ["2.12", "2.13"]
+
+
+def test_markdown_editor_mirror_does_not_change_the_question(page):
+    pg = page('<div class="fixed inset-0"><h3>Problem Statement</h3><p>Write a case study on AI consciousness.</p>'
+              '<div class="w-md-editor"><div class="w-md-editor-toolbar"><button>B</button></div>'
+              '<div class="w-md-editor-text"><pre aria-hidden="true" class="w-md-editor-text-pre"></pre>'
+              '<textarea class="w-md-editor-text-input"></textarea></div></div><button>Submit</button></div>')
+    before = call(pg, "tasks", CFG)["fields"][0]["prompt"]
+    pg.fill("textarea", "## My answer\n\nA long answer that the editor mirrors into its pre element.")
+    pg.evaluate("() => { document.querySelector('pre').textContent = document.querySelector('textarea').value; }")
+    after = call(pg, "tasks", CFG)["fields"][0]["prompt"]
+    assert "Write a case study" in before and after == before
+
+
+def test_an_open_confirmation_is_not_the_result(page):
+    pg = page("<main><p>Question 5 of 5</p></main>")
+    before = call(pg, "lines")
+    pg.evaluate("""() => document.body.insertAdjacentHTML('beforeend',
+      '<div role="dialog"><p>You have attempted 5/5 questions. Once submitted, you cannot try again.</p>' +
+      '<button>Cancel</button><button>Yes, Submit</button></div>')""")
+    r = call(pg, "result", CFG, before)
+    assert not r["found"], r
+    t = call(pg, "taskResult", CFG, before, [])
+    assert not t["success"] and not t["done"]
+    pg.evaluate("() => { document.querySelector('[role=dialog]').remove(); "
+                "document.body.insertAdjacentHTML('beforeend', '<p>Your score: 4/5</p><p>Not passed</p>'); }")
+    r = call(pg, "result", CFG, before)
+    assert (r["score"], r["total"], r["failStrong"], r["pass"]) == (4, 5, True, False)

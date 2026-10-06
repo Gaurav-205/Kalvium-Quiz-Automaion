@@ -29,6 +29,9 @@ TASK_KIND = {"text": "written", "short": "written", "code": "coding", "link": "l
 QUESTION_LIKE = re.compile(r"\?|\b(answer|output|result|explain|what|why|how|which|describe|define)\b", re.I)
 CODE_WORDS = re.compile(r"\b(code|program|function|implement|algorithm|"
                         r"write a (python|java|c\+\+|javascript|c) )", re.I)
+# fields the portal names by what they hold (input#pr, input#video)
+NAMED_LINKS = {re.compile(r"(?i)pr|pr[-_]?(link|url)|pull[-_]?request([-_]?(link|url))?"): "pr",
+               re.compile(r"(?i)video([-_]?(link|url))?|demo[-_]?video"): "video"}
 # "Write a program that...", "Implement the function..." (not "Explain what this program does")
 CODE_TASK = re.compile(r"\b(write|implement|complete|code|solve)\b[^.\n]{0,40}\b(function|program|code|class|"
                        r"method|solution|script|query)\b", re.I)
@@ -62,10 +65,13 @@ class Field:
     kind: str = ""           # text | short | code | link | other (a box kalbot won't guess, e.g. "Your name")
     link_kind: str = ""      # github | pr | live | video | link
     md: bool = False         # a Markdown editor (monospace, but never a code box)
+    elId: str = ""           # the element's id and name ("pr", "video")
+    nth: int = 0             # position among boxes with the same tag + label (set by _read)
 
     @property
     def key(self) -> tuple:
-        return self.tag, self.label, self.prompt[:150]
+        # never text that changes while typing (an editor may mirror the answer next to the box)
+        return self.tag, self.label, self.elId, self.nth
 
     @property
     def title(self) -> str:
@@ -232,6 +238,10 @@ class TaskSolver:
     # ------------------------------------------------------------------ detection
 
     def _classify(self, f: Field) -> Field:
+        named = next((NAMED_LINKS[k] for t in (f.elId or "").split() for k in NAMED_LINKS if k.fullmatch(t)), "")
+        if f.tag in ("input", "textarea") and named:   # the portal's own field ids: input#pr, input#video
+            f.kind, f.link_kind = "link", named
+            return f
         if f.tag == "editor" or (f.tag == "textarea" and not f.md and (
                 f.codeHint or (f.mono and (CODE_WORDS.search(f.label) or CODE_TASK.search(f.prompt[-400:]))))):
             f.kind = "code"
@@ -240,7 +250,7 @@ class TaskSolver:
                 f.kind = "link"
             else:
                 f.kind = "short" if QUESTION_LIKE.search(f"{f.label}\n{f.prompt[-300:]}") else "other"
-        elif f.tag == "textarea" and (f.maxlength or 0) <= 500 and linkmod.is_link_field(f.label, "", "", self.pat):
+        elif f.tag == "textarea" and (f.maxlength or 0) <= 500 and linkmod.STRONG_LINK.search(f.label):
             f.kind = "link"   # "Paste your GitHub link" as a textarea
         else:
             f.kind = "text"
@@ -255,6 +265,9 @@ class TaskSolver:
             log.debug("frame %s not readable: %s", frame.url, e)
             return None
         fields = [self._classify(Field(**f)) for f in raw["fields"]]
+        seen: dict[tuple, int] = {}
+        for f in fields:
+            f.nth = seen[(f.tag, f.label, f.elId)] = seen.get((f.tag, f.label, f.elId), -1) + 1
         groups = []
         for s in raw["submits"]:
             fs = [f for f in fields if f.submit == s["index"]]
@@ -697,23 +710,27 @@ class TaskSolver:
         before = self.ops.call(frame, "lines")
         self.ops.call(frame, "clickedMark", sel)
         self.ops.expect_confirm = True
-        confirmed = False
+        confirms = 0
         last: dict = {}
         try:
             self.ops.click(frame, sel, f"'{g.submit_text}'")
 
             def check():
-                nonlocal confirmed
+                nonlocal confirms
+                # "Are you sure? Once submitted..." first: its text is a question, not the result
+                if confirms < 2 and self.ops.call(frame, "confirm", self.ops.jscfg):
+                    self.ops.pause()
+                    self.ops.click(frame, '[data-kqb-btn="confirm"]', "confirm Submit")
+                    confirms += 1
+                    return None
                 r = self.ops.call(frame, "taskResult", self.ops.jscfg, before, idx)
                 last.update(r)
-                if r["success"] or r["done"] or (r["total"] and (r["locked"] == r["total"] or r["gone"] == r["total"])):
+                if r["total"] and (r["locked"] == r["total"] or r["gone"] == r["total"]):
+                    return r
+                if (r["success"] or r["done"]) and r["submitGone"]:
                     return r
                 if r["error"]:
                     raise UnexpectedState(f"the portal said: {r['error']}")
-                if not confirmed and self.ops.call(frame, "confirm", self.ops.jscfg):
-                    self.ops.pause()
-                    self.ops.click(frame, '[data-kqb-btn="confirm"]', "confirm Submit")
-                    confirmed = True
                 return None
 
             r = self.ops.poll(check, self.t["task_ms"], 400)
@@ -729,7 +746,7 @@ class TaskSolver:
             self.ops.expect_confirm = False
         if r:
             return r
-        if last.get("submitGone"):
+        if last.get("submitGone") or last.get("success") or last.get("done"):
             return {**last, "unconfirmed": True}
         raise UnexpectedState("no confirmation after Submit and the form is unchanged")
 

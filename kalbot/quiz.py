@@ -170,10 +170,12 @@ class QuizSolver:
     def _failed(self, r: dict | None) -> bool:
         if not r or not r.get("found") or r.get("checks_only"):
             return False
+        if r.get("failStrong"):        # "You failed", "Not passed", "Better luck next time"
+            return True
         if r.get("pass"):              # "Congratulations, you passed" (pass marks differ per quiz)
             return False
         frac = float(self.opts.get("pass_fraction", 0.6))
-        if r.get("score") is not None and r.get("total"):   # a score beats generic "try again" text
+        if r.get("score") is not None and r.get("total"):   # a score beats a stray "try again"
             return r["score"] / r["total"] < frac
         if r.get("percent") is not None:
             return r["percent"] < frac * 100
@@ -352,14 +354,14 @@ class QuizSolver:
                 nonlocal confirmed, frame
                 if frame.is_detached():
                     frame = page.main_frame
-                r = self.ops.call(frame, "result", self.ops.jscfg, before)
-                if r["found"]:
-                    return r
+                # confirm first: "You attempted 5/5 questions. Submit?" is not the score
                 if not confirmed and self.ops.call(frame, "confirm", self.ops.jscfg):
                     self.ops.pause()
                     self.ops.click(frame, '[data-kqb-btn="confirm"]', "confirm Submit")
                     confirmed = True
-                return None
+                    return None
+                r = self.ops.call(frame, "result", self.ops.jscfg, before)
+                return r if r["found"] else None
 
             r = self.ops.poll(check, self.t["result_ms"], 400)
             if r:

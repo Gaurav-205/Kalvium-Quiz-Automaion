@@ -281,8 +281,35 @@ def test_field_classification(tmp_path):
     assert (s._classify(vid).kind, vid.link_kind) == ("link", "video")
 
 
+@pytest.mark.parametrize("label, prompt, input_type, link", [
+    ("Answer", "Which git command lists the commits in a pull request?", "text", False),
+    ("Your answer", "Q3. What is the capacity of the hard drive in GB?", "text", False),
+    ("https://github.com/you/repo/pull/1 | pr", "", "text", True),
+    ("Answer", "Paste the link to your deployed site", "text", True),
+    ("", "", "url", True),
+])
+def test_is_link_field(label, prompt, input_type, link):
+    assert links.is_link_field(label, prompt, input_type, PATTERNS) is link
+
+
+def test_named_link_fields(tmp_path):
+    s = solver(tmp_path)
+    for el_id, kind in (("pr", "pr"), ("videoLink", "video"), ("demo_video", "video")):
+        f = field(0, "input", "Paste it here", "")
+        f.type, f.elId = "text", el_id
+        assert (s._classify(f).kind, f.link_kind) == ("link", kind)
+    desc = field(0, "textarea", "Describe the changes in your pull request", "")
+    desc.elId = "pr-description"          # about a PR, not a PR link
+    assert s._classify(desc).kind == "text"
+    f = field(0, "input", "PR | https://github.com/your-username/your-repo/pull/1", "")
+    f.type = "url"
+    assert s._classify(f).link_kind == "pr"     # a /pull/ URL beats a generic "repo"
+
+
 @pytest.mark.parametrize("result, failed", [
-    ({"found": True, "score": 2, "total": 5, "fail": True}, True),
+    ({"found": True, "score": 2, "total": 5, "fail": True, "failStrong": True}, True),   # "2/5 Not passed"
+    ({"found": True, "score": 3, "total": 5, "fail": True, "failStrong": True}, True),   # 80% pass mark
+    ({"found": True, "score": 1, "total": 5, "fail": True, "failStrong": True, "pass": True}, True),
     ({"found": True, "score": 4, "total": 5, "fail": True}, False),     # "try again" text, but 80%
     ({"found": True, "score": 5, "total": 9, "pass": True}, False),     # the portal says passed (50% mark)
     ({"found": True, "percent": 40}, True),
