@@ -237,3 +237,15 @@ def test_text_already_in_a_box(tmp_path):
                             field(1, "textarea", "", "Explain (100-200 words)", template, kind="text")), CTX, "")
     assert drafts[0].value == done and drafts[0].source == "already in the box"
     assert drafts[1].value == "drafted answer" and s.llm.specs[0].existing == template
+
+
+def test_linkbook_wildcard_entries_apply_everywhere_but_lose_to_specific_ones(tmp_path):
+    p = tmp_path / "submissions.yaml"
+    p.write_text("- livebook: integrated\n  lu: '*'\n  pr: https://github.com/me/r/pull/1\n"
+                 "  video: https://drive.google.com/file/d/x/view\n"
+                 "- lu: '2.12'\n  video: https://youtu.be/special\n", encoding="utf-8")
+    book = links.LinkBook.load(p)
+    assert book.lookup("Integrated Work - III", "2.12", "Sprint") == {
+        "video": "https://youtu.be/special", "pr": "https://github.com/me/r/pull/1"}
+    assert book.lookup("Integrated Work - III", "2.19", "Demo")["video"].startswith("https://drive")
+    assert book.lookup("Introduction to Philosophy", "2.12", "x") == {"video": "https://youtu.be/special"}

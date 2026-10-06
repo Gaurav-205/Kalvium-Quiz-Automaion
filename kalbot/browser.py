@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import Error as PWError
 from playwright.sync_api import TimeoutError as PWTimeout
@@ -106,6 +107,8 @@ class PageOps:
         d = cfg["delays"]
         self.lo, self.hi = float(d["action_min_s"]), float(d["action_max_s"])
         self.expect_confirm = False   # accept the next native confirm() (after clicking Submit)
+        portal = urlparse(cfg["portal"]["base_url"]).hostname or ""
+        self.hosts = {h for h in (portal, "kalvium.community", "kalvium.com", "127.0.0.1", "localhost") if h}
         page.on("dialog", self._on_dialog)
 
     # ---------------------------------------------------------------- helpers in the page
@@ -123,8 +126,23 @@ class PageOps:
     @staticmethod
     def ensure(scope) -> None:
         """Inject dom.js into a page or frame if it is not there yet."""
-        if not scope.evaluate("() => !!(window.__kqb && window.__kqb.version)"):
-            scope.evaluate(JS_HELPERS)
+        try:
+            if not scope.evaluate("() => !!(window.__kqb && window.__kqb.version)"):
+                scope.evaluate(JS_HELPERS)
+        except PWError as e:   # frame mid-navigation; the call that follows reports it
+            log.debug("could not inject helpers: %s", first_line(e))
+
+    def frames(self) -> list:
+        """The main frame plus frames served by the portal (not YouTube embeds, ads, about:blank)."""
+        main = self.page.main_frame
+        out = [main]
+        for f in self.page.frames:
+            if f is main:
+                continue
+            host = urlparse(f.url or "").hostname or ""
+            if host and (host in self.hosts or any(host.endswith("." + h) for h in self.hosts)):
+                out.append(f)
+        return out
 
     def call(self, scope, fn: str, *args):
         """window.__kqb.<fn>(*args) in a frame (main frame by default)."""
@@ -183,6 +201,35 @@ class PageOps:
         except PWError as e:
             raise UnexpectedState(f"could not click {what}: {first_line(e)}") from None
         log.info("clicked %s", what)
+
+    def confirm(self, texts: list[str] | None = None, what: str = "confirm") -> bool:
+        """Click the button of a confirmation dialog ("Proceed", "Yes, Submit"...) if one is open."""
+        for frame in self.frames():
+            try:
+                if self.call(frame, "confirm", self.jscfg, texts):
+                    self.pause()
+                    self.click(frame, '[data-kqb-btn="confirm"]', what)
+                    self.pause()
+                    return True
+            except PWError as e:
+                log.debug("confirm check failed: %s", first_line(e))
+        return False
+
+    def close_overlay(self) -> None:
+        """Close a modal left open by the previous LU (assignment workspace, result popup)."""
+        try:
+            overlay = self.page.locator("div.fixed.inset-0.z-50").first
+            if not (overlay.count() and overlay.is_visible()):
+                return
+            close = overlay.locator('button[aria-label="Close modal"], button[aria-label="Close"], '
+                                    'button:has-text("Close"), button:has-text("✕")').first
+            if close.count() and close.is_visible():
+                close.click()
+            else:
+                self.page.keyboard.press("Escape")
+            self.settle()
+        except PWError as e:
+            log.debug("close overlay: %s", first_line(e))
 
     def click_text(self, text: str) -> bool:
         """Click a tab/link/button whose accessible name is exactly `text`."""

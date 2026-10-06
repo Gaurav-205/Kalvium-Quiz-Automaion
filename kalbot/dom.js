@@ -4,7 +4,7 @@
 // never has to guess. The only page writes are setEditor()/paste(), which
 // Python calls to put an approved answer into a code or rich-text editor.
 (() => {
-  const VERSION = 2;
+  const VERSION = 3;
   if (window.__kqb && window.__kqb.version === VERSION) return;
 
   const K = { version: VERSION, items: [], root: null };
@@ -127,6 +127,8 @@
     /^(button|option|radio|checkbox)$/.test(el.getAttribute('role') || '') ||
     getComputedStyle(el).cursor === 'pointer';
 
+  const TOOLBARS = '[role="toolbar"], [class*="toolbar" i], .w-md-editor, .ql-toolbar, .tox, .ProseMirror-menubar, ' +
+    '.monaco-editor, .cm-editor, .CodeMirror, .ace_editor';
   // Plain clickable <div> options with no input/ARIA semantics. Only accepted
   // when they sit next to a Next/Submit button, so a random list never counts.
   function heuristicGroups(cfg) {
@@ -138,6 +140,7 @@
         const parents = [cont, ...cont.querySelectorAll('*')].slice(0, 4000);
         for (const parent of parents) {
           if (parent.closest('nav, header, footer, [role="navigation"], [role="tablist"], [role="menu"], [role="menubar"]')) continue;
+          if (parent.closest(TOOLBARS)) continue;   // Bold / Italic buttons of an answer editor are not options
           if (getComputedStyle(parent).cursor === 'pointer') continue;   // inside an option
           const kids = [...parent.children].filter((k) => visible(k) && textOf(k));
           if (kids.length < 2 || kids.length > 8) continue;
@@ -274,6 +277,7 @@
       let nav = Infinity;
       for (const n of navs) nav = Math.min(nav, distUp(root, n));
       if (nav > 7 && texts.every((t) => t.length <= 2)) continue;  // star ratings, emoji scales
+      if (nav > 7 && !q.progress && !root.closest('#test-component')) continue;   // options in lesson text
       const score = (g.source === 'config' ? 100 : 0) + (nav <= 7 ? 20 - nav : 0) + (q.text ? 5 : 0);
       if (!best || score > best.score) best = { g, els, texts, root, q, score };
     }
@@ -339,10 +343,22 @@
   }
   K.mainText = () => mainText();
 
+  // The page shows a perfect score: "Score: 5/5", a bare "10/10" under "Best Score", "100%", "Max score".
+  function maxScore(text) {
+    if (/max(imum)?\s*score(?!\s*[:\-]?\s*\d)/i.test(text)) return true;
+    for (const l of text.split('\n')) {
+      if (!/(score|scored|marks?|result|points)/i.test(l) && !/^\s*\d+\s*\/\s*\d+\s*$/.test(l)) continue;
+      const m = l.match(/(\d+(?:\.\d+)?)\s*(?:\/|out of)\s*(\d+(?:\.\d+)?)/i);
+      if ((m && +m[2] > 0 && +m[1] === +m[2]) || /(^|[^\d.])100\s*%/.test(l)) return true;
+    }
+    return false;
+  }
+
   K.state = (cfg) => {
     clearMarks('data-kqb-opt');
     clearMarks('data-kqb-btn');
-    const out = { kind: 'none', url: location.href, completed: any(res(cfg.completed), mainText()) };
+    const txt = mainText();
+    const out = { kind: 'none', url: location.href, completed: any(res(cfg.completed), txt), maxScore: maxScore(txt) };
     const start = buttons(cfg.start).filter((b) => !isDisabled(b));
     const retake = buttons(cfg.retake).filter((b) => !isDisabled(b));
     out.start = start.length > 0;
@@ -454,13 +470,17 @@
 
   // "Are you sure you want to submit?" modal. Ignores any dialog that holds the
   // Submit button we already clicked (the quiz itself may live in a modal).
-  K.confirm = (cfg) => {
+  // `texts` overrides cfg.confirm (e.g. Proceed/Start after clicking Start Assignment).
+  const DIALOGS = '[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"], div.fixed.inset-0';
+  const WORKSPACE = '[data-kqb-field], .monaco-editor, .cm-editor, .CodeMirror, .ace_editor, textarea, ' +
+    '[contenteditable="true"], input[type="url"], input[type="text"]';
+  K.confirm = (cfg, texts) => {
     clearMarks('data-kqb-btn', 'confirm');
-    const dialogs = [...document.querySelectorAll(
-      '[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"]')].filter(visible);
+    const dialogs = [...document.querySelectorAll(DIALOGS)].filter(visible);
     for (const d of dialogs.reverse()) {
       if (d.querySelector('[data-kqb-clicked]') || (K.root && d.contains(K.root))) continue;
-      const b = buttons(cfg.confirm, d).filter((x) => !isDisabled(x) && !x.hasAttribute('data-kqb-clicked'));
+      if (d.querySelector(WORKSPACE)) continue;   // the assignment workspace is not a confirmation
+      const b = buttons(texts || cfg.confirm, d).filter((x) => !isDisabled(x) && !x.hasAttribute('data-kqb-clicked'));
       if (b.length) { mark(b[0], 'data-kqb-btn', 'confirm'); return true; }
     }
     return false;
@@ -557,16 +577,21 @@
   }
 
   // Visible text pieces in order, so "<span>1.3 Stacks</span><span>100%</span>"
-  // reads as ["1.3 Stacks", "100%"] rather than "1.3 Stacks100%".
+  // reads as ["1.3 Stacks", "100%"] rather than "1.3 Stacks100%". Adjacent text
+  // nodes of one element are joined: React renders `{major}.{minor}` as three.
   function segments(el) {
     const out = [];
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let parent = null;
+    let buf = [];
+    const flush = () => { const t = norm(buf.join('')); if (t) out.push(t); buf = []; };
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       const p = n.parentElement;
-      if (!p || p.closest('script, style') || !visible(p)) continue;
-      const t = norm(n.textContent);
-      if (t) out.push(t);
+      if (!p || p.closest('script, style') || !visible(p) || !(n.textContent || '').trim()) continue;
+      if (p !== parent) { flush(); parent = p; }
+      buf.push(n.textContent);
     }
+    flush();
     return out;
   }
 
@@ -589,9 +614,9 @@
       const seen = new Set();
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-        if (!numRe.test(n.textContent || '')) continue;
         const host = n.parentElement;
         if (!host || !visible(host) || host.closest('script, style, [data-kqb-opt]')) continue;
+        if (!numRe.test(n.textContent || '') && !numRe.test(textOf(host))) continue;   // "1" "." "2" nodes
         let row = host;
         let click = null;
         for (let el = host, i = 0; el && el !== document.body && i < 8; el = el.parentElement, i++) {
@@ -625,12 +650,10 @@
 
   // Scroll every scrollable area to the bottom (lazy-loaded quiz sections).
   K.scrollAll = () => {
-    const els = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => {
-      if (!e) return false;
-      if (e === document.scrollingElement) return true;
-      const st = getComputedStyle(e);
-      return /(auto|scroll)/.test(st.overflowY) && e.scrollHeight > e.clientHeight + 50;
-    });
+    const els = [document.scrollingElement, ...document.querySelectorAll(
+      'main, [role="main"], article, section, div.overflow-y-auto, div.overflow-auto, [data-scroll="true"]')]
+      .filter((e) => e && (e === document.scrollingElement ||
+        (e.scrollHeight > e.clientHeight + 50 && /(auto|scroll)/.test(getComputedStyle(e).overflowY))));
     els.forEach((e) => { e.scrollTop = e.scrollHeight; });
     return els.length;
   };
@@ -663,13 +686,19 @@
   function editorApi(el) {
     const kind = el && editorKind(el);
     try {
-      if (kind === 'monaco' && window.monaco && window.monaco.editor && window.monaco.editor.getEditors) {
-        const e = window.monaco.editor.getEditors().find((x) => {
+      if (kind === 'monaco' && window.monaco && window.monaco.editor) {
+        const me = window.monaco.editor;
+        const e = me.getEditors && me.getEditors().find((x) => {
           const d = x.getDomNode && x.getDomNode();
           return d && (d === el || el.contains(d) || d.contains(el));
         });
-        const m = e && e.getModel();
-        if (e) return { get: () => e.getValue(), set: (v) => e.setValue(v), lang: (m && m.getLanguageId && m.getLanguageId()) || '' };
+        const lang = (m) => (m && m.getLanguageId && m.getLanguageId()) || '';
+        if (e) return { get: () => e.getValue(), set: (v) => e.setValue(v), lang: lang(e.getModel()) };
+        const models = (me.getModels && me.getModels()) || [];
+        const uri = el.getAttribute('data-uri');
+        const m = models.find((x) => uri && String(x.uri) === uri) ||
+          (models.length === 1 && document.querySelectorAll('.monaco-editor').length === 1 ? models[0] : null);
+        if (m) return { get: () => m.getValue(), set: (v) => m.setValue(v), lang: lang(m) };
       }
       if (kind === 'cm5' && el.CodeMirror) {
         const cm = el.CodeMirror;
@@ -723,7 +752,7 @@
     }
     const wrap = el.closest('label');
     if (wrap) bits.push(textOf(wrap));
-    for (const at of ['aria-label', 'placeholder', 'title', 'name', 'data-placeholder']) {
+    for (const at of ['aria-label', 'placeholder', 'title', 'name', 'data-placeholder', 'id']) {
       const v = el.getAttribute(at);
       if (v) bits.push(v);
     }
@@ -764,7 +793,7 @@
   }
 
   function languageNear(el) {
-    for (let p = el.parentElement, i = 0; p && i < 6; p = p.parentElement, i++) {
+    for (let p = el.parentElement, i = 0; p && i < 8; p = p.parentElement, i++) {
       for (const s of p.querySelectorAll('select')) {
         const o = s.options && s.options[s.selectedIndex];
         if (o && LANGS.test(norm(o.textContent))) return norm(o.textContent);
@@ -868,6 +897,8 @@
         required: !!(c.el.required || c.el.getAttribute('aria-required') === 'true'),
         maxlength: +(c.el.getAttribute('maxlength') || 0) || null,
         mono: /mono|courier|consolas|menlo/i.test(getComputedStyle(c.el).fontFamily || ''),
+        md: c.el.matches('.w-md-editor-text-input') ||
+          !!c.el.closest('.w-md-editor, .EasyMDEContainer, .toastui-editor-defaultUI, .md-editor'),
         codeHint: /\b(code|program|solution|snippet|editor)\b/i.test(
           `${cls(c.el)} ${c.el.getAttribute('name') || ''} ${c.el.getAttribute('id') || ''}`.replace(/[-_]/g, ' ')),
         language: (api && api.lang) || (langEl && (langEl.getAttribute('data-language') || langEl.getAttribute('data-mode-id'))) ||
@@ -885,6 +916,42 @@
       runs: usedRuns.map(info),
       done: any(res(cfg.taskDone), mainText()),
     };
+  };
+
+  // Save / Pre-submission Review buttons that belong to the boxes in `idx`.
+  K.taskSteps = (cfg, idx) => {
+    clearMarks('data-kqb-step');
+    const els = (idx || []).map(fieldEl).filter(Boolean);
+    const out = {};
+    for (const [key, texts] of [['save', cfg.save], ['review', cfg.preSubmit]]) {
+      let best = null;
+      let bestD = Infinity;
+      for (const b of buttons(texts)) {
+        if (isDisabled(b)) continue;
+        for (const e of els) { const d = distUp(e, b); if (d < bestD) { bestD = d; best = b; } }
+      }
+      if (best && bestD <= 12) { mark(best, 'data-kqb-step', key); out[key] = textOf(best).slice(0, 40); }
+    }
+    return out;
+  };
+
+  // The Pre-submission Review checklist: unticked boxes and the button that closes it.
+  K.checklist = (cfg) => {
+    clearMarks('data-kqb-chk');
+    clearMarks('data-kqb-btn', 'proceed');
+    const open = [...document.querySelectorAll(DIALOGS)].filter(visible).reverse();
+    // a review dialog of its own, else the assignment workspace overlay, else the page
+    const scope = open.find((d) => !d.querySelector(WORKSPACE) &&
+      (d.querySelector('input[type="checkbox"], [role="checkbox"]') || buttons(cfg.proceed, d).length)) ||
+      open.find((d) => d.querySelector('[data-kqb-field]')) || document;
+    const boxes = [...scope.querySelectorAll('input[type="checkbox"], [role="checkbox"]')].filter((c) =>
+      !c.closest('[data-kqb-opt], [data-kqb-field], nav, header, footer, aside') && !c.disabled &&
+      (c.matches('input') ? !c.checked : c.getAttribute('aria-checked') !== 'true') &&
+      (visible(c) || (c.labels && c.labels[0] && visible(c.labels[0]))));
+    boxes.forEach((c, i) => mark(c, 'data-kqb-chk', i));
+    const go = buttons([...cfg.proceed, 'Close'], scope === document ? undefined : scope).filter((b) => !isDisabled(b));
+    if (go.length) mark(go[0], 'data-kqb-btn', 'proceed');
+    return { boxes: boxes.length, proceed: go.length > 0, inDialog: scope !== document && !scope.querySelector(WORKSPACE) };
   };
 
   K.fieldValue = (i) => valueOf(fieldEl(i));

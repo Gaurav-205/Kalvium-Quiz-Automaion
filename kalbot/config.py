@@ -152,7 +152,8 @@ def js_config(cfg: dict) -> dict:
     return {
         "start": strs(t["start"]), "next": strs(t["next"]), "submit": strs(t["submit"]),
         "confirm": strs(t["confirm"]), "retake": strs(t["retake"]), "prev": strs(t["previous"]),
-        "taskSubmit": strs(t["task_submit"]), "run": strs(t["run"]),
+        "taskSubmit": strs(t["task_submit"]), "run": strs(t["run"]), "proceed": strs(t["proceed"]),
+        "save": strs(t["save"]), "preSubmit": strs(t["pre_submit"]),
         "optionSelector": s.get("quiz_option") or "",
         "questionSelector": s.get("quiz_question") or "",
         "taskFieldSelector": s.get("task_field") or "",

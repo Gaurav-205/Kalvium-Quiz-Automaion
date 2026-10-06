@@ -10,6 +10,15 @@ boxes, a CodeMirror-style editor with Run Tests, a plain-textarea code box
 behind "Start Assignment", link fields, a short answer, and a comment box on
 every LU page that must never be touched.
 
+Patterns seen on the real portal are mirrored too: LU overview cards with a
+"Go to Lessons" button, a full-screen assignment workspace (Tailwind
+`fixed inset-0 z-50`) behind "Start Assignment" + a role-less "Proceed"
+overlay, a Markdown editor (`textarea.w-md-editor-text-input`), Save,
+"Pre-submission Review" with a checklist, "Best Score 9/10", a Monaco editor
+reachable only through `monaco.editor.getModels()`, `input#pr` / `input#video`,
+LU numbers split into React text nodes, the green `bg-[#16a34a]` done marker,
+"Proceed" after Retake, and in-lesson check questions before a graded quiz.
+
 Run it on its own to look around:  python tests/mock_portal.py
 """
 
@@ -66,26 +75,42 @@ QUIZZES = {
         Q("Python lists are:", ["Linked lists", "Dynamic arrays", "Hash maps", "Trees"], [1]),
     ],
     ("2506", "12"): [Q(f"Linked list question {i}?", ["A", "B", "C", "D"], [0]) for i in range(1, 6)],
+    ("2506", "14"): [Q(f"Queue question {i}: which end does dequeue use?", ["Front", "Back", "Middle", "Any"], [0])
+                     for i in range(1, 6)],
     ("2506", "13"): [Q(f"Stack question {i}?", ["A", "B", "C", "D"], [0]) for i in range(1, 6)],
+}
+
+# ungraded "check your understanding" questions inside a lesson, before its graded quiz
+CHECKS = {
+    ("2506", "14"): [Q("Check: a queue is FIFO or LIFO?", ["FIFO", "LIFO", "Both", "Neither"], [0]),
+                     Q("Check: enqueue adds at the?", ["Back", "Front", "Middle", "Top"], [0])],
 }
 
 FIZZ_STARTER = "def fizzbuzz(n):\n    # return a list of strings for 1..n\n    pass\n"
 
 
-def F(name, type, question="", label="", placeholder="", value=""):
+def F(name, type, question="", label="", placeholder="", value="", fid=""):
     return {"name": name, "type": type, "question": question, "label": label, "placeholder": placeholder,
-            "value": value}
+            "value": value, "fid": fid}
+
+
+BRIEF = ("Problem Statement\nCould a highly advanced AI ever be conscious? Write a case study that takes a "
+         "position, explains the hard problem of consciousness, and evaluates one argument for and one against "
+         "machine consciousness (for example, whether running code could ever amount to experience). "
+         "Structure it with headings.")
 
 
 # Assignments. fields: name, widget type, the question above it, its label/placeholder.
 TASKS = {
     ("2505", "13"): {"fields": [F("answer", "textarea", "Reflect on what 'know thyself' means for you as a "
                                   "learner. Write your answer (minimum 200 words).", placeholder="Type your answer")]},
-    ("2505", "22"): {"fields": [
-        F("repo", "url", "Build a small script that flags unethical data use.", "GitHub repository link",
-          "https://github.com/you/repo"),
-        F("video", "url", "", "Video walkthrough (Loom or YouTube)", "https://www.loom.com/share/..."),
+    ("2505", "22"): {"fields": [   # like the portal's form: ids, placeholders, no <label>
+        F("pr", "url", "Open a pull request with your data-ethics checker and paste its link.",
+          placeholder="https://github.com/...", fid="pr"),
+        F("video", "url", "", placeholder="Google Drive link", fid="video"),
     ]},
+    ("2505", "25"): {"workspace": True, "brief": BRIEF, "fields": [
+        F("answer", "md", "", placeholder="Write your answer in Markdown")]},
     ("2507", "11"): {"confirm": True, "fields": [
         F("q1", "rich", "1. What did you learn about semantic HTML this week? (50-80 words)", "Answer 1"),
         F("q2", "plain_rich", "2. Name one accessibility habit you will keep. Answer in about 40 words.", "Answer 2"),
@@ -104,6 +129,9 @@ TASKS = {
     ]},
     ("2507", "15"): {"fields": [F("short", "text", "", "What does HTML stand for?")]},
     ("2507", "16"): {"fields": [F("video", "url", "Record a 2-minute demo of your portfolio.", "Demo video link")]},
+    ("2507", "17"): {"fields": [
+        F("code", "monaco", "Two Sum: read n, then n integers, then a target. Print the 0-based indices i < j of "
+          "the two numbers that add up to the target, separated by a space.")]},
 }
 
 # kind: quiz variant or task type; start: has a Start screen; tab: quiz behind an in-page tab
@@ -122,6 +150,7 @@ LUS = {
                 ("22", "2.2", "Ethics in Code", {"kind": "task"}),
                 ("23", "2.3", "Utilitarianism", {"kind": "div", "start": False, "tab": True}),
                 ("24", "2.4", "Reading: Kant", {"kind": "reading"}),
+                ("25", "2.5", "Case Study: Conscious Machines", {"kind": "task"}),
             ]),
         ],
     },
@@ -133,12 +162,13 @@ LUS = {
                 ("11", "1.1", "Arrays", {"kind": "native", "start": True, "iframe": True}),
                 ("12", "1.2", "Linked Lists", {"kind": "native", "start": True}),
                 ("13", "1.3", "Stacks", {"kind": "native", "start": True}),
+                ("14", "1.4", "Queues", {"kind": "native", "start": True, "checks": True}),
             ]),
         ],
     },
     "2507": {
         "name": "Web Development",
-        "rows": "div",
+        "rows": "react",        # anchors to an overview card, split LU numbers, colour-only done marker
         "modules": [
             ("Module 1: Building for the web", True, [
                 ("11", "1.1", "Learning Journal", {"kind": "task"}),
@@ -147,6 +177,7 @@ LUS = {
                 ("14", "1.4", "Portfolio Website", {"kind": "task"}),
                 ("15", "1.5", "HTML Basics", {"kind": "task"}),
                 ("16", "1.6", "Demo Day", {"kind": "task"}),
+                ("17", "1.7", "Two Sum (C++)", {"kind": "task"}),
             ]),
         ],
     },
@@ -168,15 +199,29 @@ main{flex:1;padding:16px} .card{border:1px solid #ccc;padding:12px;margin:8px;di
 .rich{min-height:60px;border:1px solid #999;padding:6px} .CodeMirror{border:1px solid #999;min-height:90px}
 .CodeMirror-code{font-family:monospace;white-space:pre;padding:6px} .code-input{font-family:monospace}
 .comments{margin-top:30px;border-top:1px solid #ccc}
+.flex{display:flex;gap:6px;align-items:center} .dot{display:inline-block;width:10px;height:10px;border-radius:5px}
+.fixed.inset-0{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50}
+.workspace{background:#fff;padding:16px;max-height:90vh;overflow:auto}
 """
 
 QUIZ_ENGINE = r"""
 (function(){
 const Q = window.QUIZ; const root = document.getElementById('quiz-root');
 let cur = 0, answers = Q.questions.map(() => []), started = !Q.start, done = Q.already;
+let checking = !!(Q.checks && Q.checks.length) && !Q.already, ci = 0;
 const h = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function renderCheck() {
+  const q = Q.checks[ci];
+  root.innerHTML = `<div class="check"><h4>Check your understanding</h4><p>${h(q.text)}</p><div class="options">` +
+    q.options.map((o, i) => `<label class="opt"><input type="radio" name="c${ci}" value="${i}"> <span>${h(o)}</span></label>`).join('') +
+    '</div><button class="btn" id="cnext" disabled>Next</button></div>';
+  const nx = document.getElementById('cnext');
+  root.querySelectorAll('input').forEach(inp => inp.onchange = () => { nx.disabled = false; });
+  nx.onclick = () => { ci++; if (ci >= Q.checks.length) checking = false; setTimeout(render, 200); };
+}
 function render() {
   if (done) return renderResult();
+  if (checking) return renderCheck();
   if (!started) {
     root.innerHTML = '<div class="intro"><h3>Quiz</h3><p>5 questions. Choose the best answer.</p><button class="btn" id="start">Start Quiz</button></div>';
     document.getElementById('start').onclick = () => { root.innerHTML = '<p>Loading...</p>'; setTimeout(() => { started = true; render(); }, 400); };
@@ -244,7 +289,15 @@ function renderResult() {
     root.innerHTML = `<div class="result"><h3>Quiz submitted</h3><p class="score">You scored ${r.score}/${r.total}</p><p>${r.passed ? 'Congratulations, you passed!' : 'You failed this quiz. Better luck next time.'}</p>${r.passed ? '' : '<button class="btn" id="retake">Retake Quiz</button>'}</div>`;
   }
   const rt = document.getElementById('retake');
-  if (rt) rt.onclick = () => { done = null; cur = 0; answers = Q.questions.map(() => []); started = !Q.start; render(); };
+  const again = () => { done = null; cur = 0; answers = Q.questions.map(() => []); started = !Q.start; render(); };
+  if (rt && !r.already) rt.onclick = again;
+  if (rt && r.already) rt.onclick = () => {   // the portal's "Proceed" overlay has no dialog role
+    const m = document.createElement('div'); m.className = 'fixed inset-0 z-50 overlay';
+    m.innerHTML = '<div class="modal-box"><p>Your previous score will be replaced. Retake?</p><button class="btn" id="rc">Cancel</button><button class="btn" id="rp">Proceed</button></div>';
+    document.body.appendChild(m);
+    m.querySelector('#rc').onclick = () => m.remove();
+    m.querySelector('#rp').onclick = () => { m.remove(); again(); };
+  };
 }
 setTimeout(render, 500);
 })();
@@ -262,9 +315,16 @@ document.querySelectorAll('[data-cm]').forEach(el => {
                     getOption: (k) => k === 'mode' ? 'python' : k === 'readOnly' ? el.getAttribute('aria-readonly') === 'true' : null };
   render();
 });
+document.querySelectorAll('.monaco-editor[data-uri]').forEach(el => {   // reachable only via getModels()
+  const view = el.querySelector('.view-lines'); let val = '';
+  const model = { uri: { toString: () => el.dataset.uri }, getValue: () => val, getLanguageId: () => 'cpp',
+                  setValue: (v) => { val = v; view.textContent = v; } };
+  window.monaco = { editor: { getModels: () => [model] } };
+  el.__get = () => model.getValue();
+});
 const form = document.querySelector('[data-task-form]'); if (!form) return;
 const status = form.querySelector('.status'); const out = form.querySelector('.output');
-const valueOf = (el) => el.CodeMirror ? el.CodeMirror.getValue() : (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? el.value : el.innerText;
+const valueOf = (el) => el.__get ? el.__get() : el.CodeMirror ? el.CodeMirror.getValue() : (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? el.value : el.innerText;
 const values = () => { const v = {}; form.querySelectorAll('[data-task-field]').forEach(el => v[el.dataset.taskField] = valueOf(el)); return v; };
 const run = form.querySelector('[data-task-run]');
 if (run) run.onclick = () => {
@@ -298,6 +358,55 @@ if (start) start.onclick = () => { start.parentElement.remove(); form.classList.
 })();
 """
 
+# The portal's assignment workspace: Start Assignment -> "Proceed" overlay -> full-screen
+# workspace with a Markdown editor, Save, Pre-submission Review (checklist) and Submit.
+WORKSPACE_ENGINE = r"""
+(function(){
+const T = window.TASK;
+const overlay = (html) => { const m = document.createElement('div'); m.className = 'fixed inset-0 z-50 overlay';
+  m.innerHTML = html; document.body.appendChild(m); return m; };
+const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({lb: T.lb, lu: T.lu, ...body})}).then(r => r.json());
+document.querySelector('[data-ws-start]').onclick = () => {
+  const c = overlay('<div class="modal-box"><p>Start the assignment now?</p><button class="btn" id="wc">Cancel</button><button class="btn" id="wp">Proceed</button></div>');
+  c.querySelector('#wc').onclick = () => c.remove();
+  c.querySelector('#wp').onclick = () => { c.remove(); open(); };
+};
+function open() {
+  const w = overlay(`<div class="workspace"><button aria-label="Close modal" class="btn" id="close">✕</button>
+    <div class="brief">${T.brief.replace(/\n/g, '<br>')}</div>
+    <div class="w-md-editor"><div class="w-md-editor-toolbar"><button class="btn">B</button><button class="btn">I</button></div>
+    <textarea class="w-md-editor-text-input" style="font-family:monospace" rows="8" cols="70" data-task-field="answer"
+      placeholder="Write your answer in Markdown"></textarea></div>
+    <div class="actions"><button class="btn" id="save">Save</button><button class="btn" id="psr">Pre-submission Review</button>
+    <button class="btn" id="submit" disabled>Submit</button></div><p class="status"></p></div>`);
+  const ta = w.querySelector('textarea'), status = w.querySelector('.status'), submit = w.querySelector('#submit');
+  w.querySelector('#close').onclick = () => w.remove();
+  w.querySelector('#save').onclick = () => post('/api/save', {answer: ta.value}).then(() => { status.textContent = 'Draft saved'; });
+  w.querySelector('#psr').onclick = () => {
+    const r = overlay('<div class="modal-box"><h4>Pre-submission review</h4>' +
+      '<label><input type="checkbox" id="k1"> I addressed every part of the problem statement</label><br>' +
+      '<label><input type="checkbox" id="k2"> I checked the formatting</label><br>' +
+      '<button class="btn" id="rp" disabled>Proceed</button></div>');
+    const boxes = [...r.querySelectorAll('input')], go = r.querySelector('#rp');
+    boxes.forEach(b => b.onchange = () => { go.disabled = !boxes.every(x => x.checked); });
+    go.onclick = () => { r.remove(); post('/api/review', {}).then(() => { submit.disabled = false; }); };
+  };
+  submit.onclick = () => {
+    if (!ta.value.trim()) { status.textContent = 'This field is required'; return; }
+    const c = overlay('<div class="modal-box"><p>Submit your assignment for grading?</p><button class="btn" id="sn">Cancel</button><button class="btn" id="sy">Yes, Submit</button></div>');
+    c.querySelector('#sn').onclick = () => c.remove();
+    c.querySelector('#sy').onclick = () => { c.remove(); status.textContent = 'Grading...';
+      post('/api/task', {fields: {answer: ta.value}}).then(() => {
+        ta.readOnly = true; submit.remove();
+        setTimeout(() => { status.innerHTML = "Well done! You've completed this assignment successfully.<br>Best Score<br>9/10"; }, 300);
+      });
+    };
+  };
+}
+})();
+"""
+
 COMMENTS = ('<section class="comments"><h4>Discussion</h4><p>Ask doubts or share thoughts with your batch.</p>'
             '<textarea rows="3" cols="60" placeholder="Add a comment..."></textarea><br>'
             '<button class="btn">Post</button></section>')
@@ -325,6 +434,8 @@ class Portal:
             self.submissions[("2506", "13")] = [{"answers": None, "score": 5}]
             self.tasks: dict = {}    # (lb, lu) -> submitted fields
             self.runs: list = []     # code sent to Run Tests
+            self.saved: dict = {}    # (lb, lu) -> last saved draft
+            self.reviewed: set = set()   # pre-submission reviews completed
 
     def lu_done(self, lb, lu) -> bool:
         info = self.lu_info(lb, lu)
@@ -352,7 +463,16 @@ class Portal:
         s = {f"{k[0]}/{k[1]}": v for k, v in self.submissions.items()}
         s["tasks"] = {f"{k[0]}/{k[1]}": v for k, v in self.tasks.items()}
         s["runs"] = list(self.runs)
+        s["saved"] = {f"{k[0]}/{k[1]}": v for k, v in self.saved.items()}
+        s["reviewed"] = sorted(f"{k[0]}/{k[1]}" for k in self.reviewed)
         return s
+
+
+def uuid_for(lb: str, lu: str) -> str:
+    return f"7e5b0000-0000-4000-8000-{int(lb):04d}{int(lu):08d}"
+
+
+UUIDS = {uuid_for(lb, luid): (lb, luid) for lb, d in LUS.items() for _, _, rows in d["modules"] for luid, *_ in rows}
 
 
 def page(title, body, head=""):
@@ -386,9 +506,15 @@ def task_field(f: dict, locked: dict | None) -> str:
                 '<div class="CodeMirror-code"></div></div></div>')
     if t == "code_textarea":
         return f'<div class="q">{q}<textarea class="code-input" name="code" rows="6" cols="60" {attrs}{dis}>{e(val)}</textarea></div>'
+    if t == "monaco":
+        ro = ' aria-readonly="true"' if locked else ""
+        return (f'<div class="q">{q}<div class="toolbar"><button class="btn lang">CPP</button></div>'
+                f'<div class="monaco-editor" data-uri="inmemory://model/1" {attrs}{ro} style="min-height:90px;border:1px solid #999">'
+                f'<div class="view-lines" style="font-family:monospace;white-space:pre">{e(val)}</div></div></div>')
     typ = "url" if t == "url" else "text"
-    fid = f'f_{f["name"]}'
-    return (f'<div class="q">{q}<label for="{fid}">{e(f["label"])}</label><br><input id="{fid}" type="{typ}" '
+    fid = f["fid"] or f'f_{f["name"]}'
+    label = f'<label for="{fid}">{e(f["label"])}</label><br>' if f["label"] else ""
+    return (f'<div class="q">{q}{label}<input id="{fid}" type="{typ}" '
             f'size="60" placeholder="{e(f["placeholder"])}" value="{e(val)}" {attrs}{dis}></div>')
 
 
@@ -428,6 +554,12 @@ class Handler(BaseHTTPRequestHandler):
             with self.portal.lock:
                 self.portal.tasks[(body["lb"], body["lu"])] = body["fields"]
             return self._send(200, '{"ok": true}', "application/json")
+        if u.path == "/api/save":
+            self.portal.saved[(body["lb"], body["lu"])] = body.get("answer", "")
+            return self._send(200, "{}", "application/json")
+        if u.path == "/api/review":
+            self.portal.reviewed.add((body["lb"], body["lu"]))
+            return self._send(200, "{}", "application/json")
         if u.path == "/api/run":
             passed, output = judge(body.get("code") or "")
             self.portal.runs.append({"lu": f'{body["lb"]}/{body["lu"]}', "passed": passed})
@@ -455,6 +587,12 @@ document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" lo
             return self._send(200, self.livebook(parts[1]))
         if len(parts) == 4 and parts[0] == "livebooks" and parts[2] == "lu":
             return self._send(200, self.lu_page(parts[1], parts[3]))
+        if len(parts) in (3, 4) and parts[0] == "livebooks" and parts[2] in UUIDS:
+            lb, lu = UUIDS[parts[2]]
+            if len(parts) == 3:
+                return self._send(200, self.overview(lb, lu))
+            if parts[3] == "lessons":
+                return self._send(200, self.lu_page(lb, lu))
         if len(parts) == 3 and parts[0] == "quizframe":
             return self._send(200, self.quiz_doc(parts[1], parts[2], standalone=True))
         self._send(404, page("Not found", "<main>Not found</main>"))
@@ -484,6 +622,12 @@ document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" lo
                     items += (f'<div class="lu-item" data-testid="lu-item" role="button" tabindex="0" '
                               f'onclick="location.href=\'/livebooks/{lb}/lu/{luid}\'">'
                               f'<span class="lu-num">{num}</span> <span class="lu-title">{t}</span> {icon}</div>')
+                elif d["rows"] == "react":
+                    major, minor = num.split(".")
+                    colour = "bg-[#16a34a]" if done else "bg-[#e5e7eb]"
+                    items += (f'<a class="lu-item flex" href="/livebooks/{lb}/{uuid_for(lb, luid)}">'
+                              f'<span class="dot {colour}"></span><span class="lu-num">{major}<!-- -->.<!-- -->{minor}</span>'
+                              f' <span class="lu-title">{t}</span></a>')
                 else:
                     pct = "100%" if done else ("40%" if luid == "12" else "0%")
                     items += (f'<a class="lu-item" href="/livebooks/{lb}/lu/{luid}"><span>{num} {t}</span>'
@@ -510,14 +654,34 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
         qs = [{k: q[k] for k in ("text", "options", "code", "multi")} for q in QUIZZES[(lb, lu)]]
         subs = self.portal.submissions.get((lb, lu))
         already = {"already": True, "score": subs[-1]["score"], "total": len(qs)} if subs else None
+        checks = [{k: q[k] for k in ("text", "options", "code", "multi")} for q in CHECKS.get((lb, lu), [])]
         data = {"lb": lb, "lu": lu, "variant": info["kind"], "start": info.get("start", False),
-                "questions": qs, "already": already}
+                "questions": qs, "already": already, "checks": checks}
         block = (f'<div id="quiz-root"></div><script>window.QUIZ={json.dumps(data)};</script>'
                  f'<script>{QUIZ_ENGINE}</script>')
         return page("Quiz", f"<main>{block}</main>") if standalone else block
 
+    def overview(self, lb, lu):
+        info = self.portal.lu_info(lb, lu)
+        body = (f'{header()}<main><div class="card"><h2>{html.escape(info["title"])}</h2><p>Estimated time: 45 min</p>'
+                f'<button class="btn" aria-label="Go to Lessons" onclick="location.href=location.pathname+\'/lessons\'">'
+                'Go to Lessons</button></div></main>')
+        return page(info["title"], body)
+
+    def workspace_doc(self, lb, lu, spec):
+        submitted = self.portal.tasks.get((lb, lu))
+        if submitted:
+            return ("<div class='result'><p>Well done! You've completed this assignment successfully.</p>"
+                    "<p>Best Score</p><p>9/10</p><button class='btn'>Retake Assignment</button></div>")
+        data = {"lb": lb, "lu": lu, "brief": spec["brief"]}
+        return ('<div class="intro"><h3>Assignment</h3><p>Graded out of 10.</p>'
+                '<button class="btn" data-ws-start>Start Assignment</button></div>'
+                f'<script>window.TASK={json.dumps(data)};</script><script>{WORKSPACE_ENGINE}</script>')
+
     def task_doc(self, lb, lu):
         spec = TASKS[(lb, lu)]
+        if spec.get("workspace"):
+            return self.workspace_doc(lb, lu, spec)
         locked = self.portal.tasks.get((lb, lu))
         fields = "".join(task_field(f, locked) for f in spec["fields"])
         if locked:
@@ -559,7 +723,8 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
         elif kind == "task":
             task = self.task_doc(lb, lu)
         else:
-            task = '<button class="btn">Mark as complete</button>'
+            task = ('<button class="btn">Mark as complete</button>'
+                    '<iframe src="about:blank" title="video" style="width:200px;height:100px"></iframe>')
         body = f'{header()}<div class="wrap"><aside>{side}</aside><main>{reading}<div id="task">{task}</div>{COMMENTS}</main></div>'
         return page(info["title"], body)
 

@@ -26,9 +26,10 @@ run:
                                    # (--auto turns this off for one run; quizzes never wait)
   dry_run_click_start: false       # dry-run: click "Start" to preview question 1 (no answers clicked)
   retake_on_fail: true             # retake a quiz at most once if it says failed / score below pass_fraction
+  retake_completed: false          # same as --retake: also retake submitted quizzes without a perfect score
   pass_fraction: 0.6               # used only when the portal shows a score but no pass/fail text
   expected_questions: 5
-  max_questions_per_quiz: 12       # safety stop
+  max_questions_per_quiz: 30       # safety stop
   trust_list_completion: true      # skip LUs the Learning Path shows as complete without opening them
   snapshot_quiz_pages: true        # save HTML+PNG of question 1 and the result screen of every quiz
   login_timeout_minutes: 10
@@ -36,10 +37,10 @@ run:
 llm:
   provider: gemini                 # gemini | claude  (switching needs only this line + the key)
   models:
-    gemini: gemini-3.5-flash
+    gemini: gemini-3.5-flash-lite
     claude: claude-opus-5-5
-  fallback_models:                 # tried in order if the model id is not available (HTTP 404)
-    gemini: [gemini-flash-latest, gemini-2.5-flash]
+  fallback_models:                 # rotated through on 404 (not available), 429 (quota) and 5xx (overloaded)
+    gemini: [gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-flash-latest]
     claude: []
   api_key_env:                     # keys are read from these environment variables (or .env) only
     gemini: GEMINI_API_KEY
@@ -54,7 +55,7 @@ llm:
   max_output_tokens_long: 32000    # written answers, code and projects
   include_lu_content: true         # give the model the LU's reading material as context (better answers)
   max_context_chars: 24000
-  min_seconds_between_calls: 0     # raise to ~6 if the Gemini free tier rate-limits you
+  min_seconds_between_calls: 5     # keeps the Gemini free tier under its rate limit; 0 with a paid key
   transient_retry_delays: [5, 15, 30, 60]   # seconds, for 429 / 5xx
 
 written:
@@ -125,10 +126,12 @@ selectors:
 texts:                             # exact visible button texts (case/arrows/icons ignored)
   start: [Start Quiz, Start the Quiz, Start, Begin Quiz, Begin, Take Quiz, Take the Quiz,
           Attempt Quiz, Attempt, Attempt Now, Start Assessment, Start Now, Start Assignment,
-          Attempt Assignment, Start Task, Solve, Solve Now, Start Coding]
+          Attempt Assignment, Start Task, Solve, Solve Now, Start Coding, Resume Quiz,
+          Resume Assignment, Retake Assignment]
   next: [Next, Next Question, Save & Next, Save and Next]
   submit: [Submit, Submit Quiz, Submit Answers, Submit Answer, Submit Assessment, Finish, Finish Quiz]
-  confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK', Submit Anyway]
+  confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK', Submit Anyway, Proceed]
+  proceed: [Proceed, Start, Continue, 'Yes', Confirm, 'OK', Begin, Done]   # confirmations after Start / review
   retake: [Retake, Retake Quiz, Try Again, Reattempt, Re-attempt, Attempt Again]
   previous: [Previous, Prev, Back, Previous Question]
   # in-page tabs that may hide the quiz or assignment (clicking a tab only shows content)
@@ -139,6 +142,8 @@ texts:                             # exact visible button texts (case/arrows/ico
                 Turn In, Hand In, Save & Submit, Save and Submit, Final Submit]
   run: [Run, Run Code, Run Tests, Run Test Cases, Test, Test Code, Execute, Compile & Run,
         Compile and Run, Check, Check Code]
+  save: [Save, Save Draft, Save Answer, Save Changes, Save Progress]          # clicked before Submit when present
+  pre_submit: [Pre-submission Review, Pre-Submission Review, Presubmission Review, Review Submission]
 
 patterns:
   login_url: ['/login', '/signin', '/sign-in', '/auth', 'accounts.google.com', '/sso']
@@ -150,6 +155,7 @@ patterns:
     - 'check[-_ ]?(circle|mark)|circle[-_ ]?check|\btick\b'
     - '(?<![\d.])100\s*%'
     - 'progress=100\b'
+    - '16a34a'                     # the portal's green "done" colour (bg-[#16a34a])
   lu_not_completed:                # overrides lu_completed
     - '\bincomplete\b'
     - 'not[-_ ]?(yet[-_ ])?(completed?|started|submitted|done)'
@@ -181,7 +187,9 @@ patterns:
                  '\bmessage\b', 'ask (a |your )?question', '\bpost\b']
   # assignment already handed in (page text)
   task_done: ['\bre-?submit\b', '(edit|update|view) (your )?submission', 'submission (received|successful|recorded|saved)',
-              '(successfully|already) submitted', 'you have submitted', 'submitted on\b', 'under review']
+              '(successfully|already) submitted', 'you have submitted', 'submitted on\b', 'under review',
+              "you've completed this assignment", 'assignment (completed|submitted)',
+              'best score\s*:?\s*([7-9]|10)\s*/\s*10\b']
   # text that appears after Submit
   task_success: ['\bsubmitted\b', '\bsuccess', 'thank you', '\breceived\b', '\bsaved\b', 'well done', 'great job']
   task_error: ['\brequired\b', '\binvalid\b', 'must (be|contain|include)', 'please (enter|provide|fill|add)', 'too (short|long)', '\bnot a valid\b']

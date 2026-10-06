@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -72,6 +73,7 @@ class GeminiProvider(LLMProvider):
         from google.genai import errors
 
         system = req.system + ("\n\n" + prompts.material_block(req.material) if req.material else "")
+        rotations = 0
         while True:
             model = self._models[0]
             try:
@@ -85,10 +87,19 @@ class GeminiProvider(LLMProvider):
                         response_mime_type="application/json" if req.json else None,
                     ),
                 )
-            except errors.ClientError as e:
+            except errors.APIError as e:
+                text = str(e).lower()
                 if e.code == 404 and len(self._models) > 1:
-                    log.warning("Gemini model %s is not available; trying %s", model, self._models[1])
+                    log.warning("Gemini model %s is not available; switching to %s", model, self._models[1])
                     self._models.pop(0)
+                    continue
+                quota = e.code == 429 or "resource_exhausted" in text or "quota" in text
+                busy = e.code in (500, 502, 503, 504) or "overloaded" in text
+                if (quota or busy) and len(self._models) > 1 and rotations < len(self._models) - 1:
+                    rotations += 1   # each model has its own free-tier quota: try the next one
+                    log.warning("Gemini model %s %s; switching to %s", model,
+                                "is out of quota" if quota else "is overloaded", self._models[1])
+                    self._models.append(self._models.pop(0))
                     continue
                 raise
             return resp.text or ""
@@ -160,6 +171,19 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
 }
 
 
+def windows_user_env(name: str) -> str:
+    """A variable set with `setx` is only visible to terminals opened afterwards: read it from the registry."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            return str(winreg.QueryValueEx(k, name)[0])
+    except OSError:
+        return ""
+
+
 def make_provider(llm_cfg: dict) -> LLMProvider:
     name = str(llm_cfg["provider"]).lower().strip()
     if name not in PROVIDERS:
@@ -170,7 +194,7 @@ def make_provider(llm_cfg: dict) -> LLMProvider:
     key = ""
     if cls.needs_key:
         env = (llm_cfg.get("api_key_env") or {}).get(name, "")
-        key = os.environ.get(env, "").strip() if env else ""
+        key = (os.environ.get(env, "") or windows_user_env(env)).strip() if env else ""
         if not key:
             raise LLMError(
                 fatal=True, msg=f"{env} is not set. Add it to the .env file in the kalbot folder "
@@ -203,11 +227,12 @@ class Answer:
 class WriteSpec:
     question: str
     label: str = ""
-    words: tuple[int, int] = (120, 250)
+    words: tuple[int, int] | None = (120, 250)   # None: as long as the assignment needs
     short: bool = False
     max_chars: int = 200
     others: list[str] = field(default_factory=list)
     existing: str = ""        # a template or partial draft already in the box
+    markdown: bool = False    # the box is a Markdown editor
 
 
 @dataclass
@@ -278,6 +303,24 @@ def parse_answer(text: str, n_options: int, multi: bool) -> Answer:
     if conf not in ("high", "medium", "low"):
         conf = "low"
     return Answer(sorted(out), conf, text)
+
+
+def one_based(text: str, n_options: int, multi: bool) -> Answer | None:
+    """A reply whose indices only make sense as 1..N (it uses N itself), shifted to 0-based."""
+    try:
+        idx = json_object(text).get("answer_indices")
+    except ValueError:
+        return None
+    idx = [idx] if isinstance(idx, int) and not isinstance(idx, bool) else idx
+    if not (isinstance(idx, list) and idx and all(isinstance(v, int) and not isinstance(v, bool) for v in idx)):
+        return None
+    if min(idx) < 1 or max(idx) != n_options:
+        return None
+    try:
+        a = parse_answer(json.dumps({**json_object(text), "answer_indices": [v - 1 for v in idx]}), n_options, multi)
+    except ValueError:
+        return None
+    return Answer(a.indices, "low", text)
 
 
 def count_words(text: str) -> int:
@@ -404,29 +447,38 @@ class LLM:
         req.prompt = (f"{prompt}\n\nYour previous reply was invalid. Reply with ONLY the JSON object "
                       f"{prompts.QUIZ_JSON} using indices 0..{len(q.options) - 1}"
                       + ("" if q.multi else " and exactly one index") + ".")
+        reply = self.ask(req)
         try:
-            return parse_answer(self.ask(req), len(q.options), q.multi)
+            return parse_answer(reply, len(q.options), q.multi)
         except ValueError as e:
+            fixed = one_based(reply, len(q.options), q.multi)
+            if fixed:
+                log.warning("LLM used 1-based option numbers; shifted %s", fixed.indices)
+                return fixed
             raise LLMError(f"LLM reply invalid twice: {e}") from None
 
     # ---------------------------------------------------------------- written answers
 
     def write(self, spec: WriteSpec, course: str = "", material: str = "") -> str:
-        system = prompts.WRITE_SYSTEM.format(style=self.style)
+        system = prompts.WRITE_SYSTEM.format(
+            style=self.style, format=prompts.MARKDOWN_FORMAT if spec.markdown else prompts.PLAIN_FORMAT)
         prompt = prompts.write_prompt(spec, course)
         req = Request(system, prompt, self.material(material), kind="written")
-        text = clean_text(self.ask(req))
+        tidy = (lambda t: t.strip()) if spec.markdown else clean_text   # Markdown boxes keep their formatting
+        text = tidy(self.ask(req))
         if not text:
-            text = clean_text(self.ask(req))
+            text = tidy(self.ask(req))
         if not text:
             raise LLMError("the model returned an empty answer")
         if spec.short:
-            return fit_chars(text.replace("\n", " "), spec.max_chars)
+            return fit_chars(clean_text(text).replace("\n", " "), spec.max_chars)
+        if not spec.words:
+            return text
         lo, hi = spec.words
         n = count_words(text)
         if not lo <= n <= hi:
             req.prompt = prompts.revise_words_prompt(prompt, text, n, lo, hi)
-            revised = clean_text(self.ask(req))
+            revised = tidy(self.ask(req))
             m = count_words(revised)
             if revised and abs(m - (lo + hi) / 2) < abs(n - (lo + hi) / 2):
                 text = revised

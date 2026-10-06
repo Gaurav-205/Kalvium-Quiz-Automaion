@@ -9,21 +9,23 @@ unfinished Learning Unit (LU) and completes it with an LLM (Gemini by default, C
 **quizzes, written answers, coding exercises, and GitHub / live-site / video link submissions.**
 You review every written, coding and link submission before it goes in, unless you say `--auto`.
 
-> **Read this first.** kalbot was built and tested against a local *mock* of the portal (see
-> `tests/`); it has never seen the real Kalvium pages. It finds things by roles, visible text and
-> page structure rather than brittle CSS classes, so it should cope with the real site. Your first
-> run is still the real test, so follow **First run** in order. Every step says what it found
-> before anything is submitted.
+> **Read this first.** The quiz flow, LU navigation (overview card → *Go to Lessons*) and the
+> assignment workspace (*Start Assignment* → *Proceed* → Markdown editor / Monaco / PR and video
+> fields → *Save* → *Pre-submission Review* → *Submit*) follow what was observed on the real portal.
+> The test suite runs against a local mock that reproduces those patterns. Kalvium changes its pages,
+> and other assignment layouts may differ, so follow **First run** in order: every step says what it
+> found before anything is submitted.
 
 ## What it does
 
 | Assignment | What kalbot does |
 |---|---|
-| **Quiz (MCQ)** | Reads each question, code block and option (single or multi-select), asks the LLM with the LU's reading material as context, clicks and *verifies* the choice, moves on, submits, reads the score, and retakes once if it failed. |
-| **Written / subjective** | Drafts each answer box from its question and the LU material, within the stated word limit (`minimum 200 words`, `150-300 words`, ...), in a student voice you can tune. A finished answer already in a box is kept; a template or half-written draft is filled in or completed. |
-| **Coding** | Writes the solution into the editor (Monaco, CodeMirror 5/6, Ace or a plain textarea), keeping the starter code's signatures. If there's a **Run / Test** button, it runs the tests, feeds failures back to the LLM and fixes the code (twice by default) before submitting. |
+| **Quiz (MCQ)** | Reads each question, code block and option (single or multi-select), asks the LLM with the LU's reading material as context, clicks and *verifies* the choice, moves on, submits, reads the score, and retakes once if it failed. Answers a lesson's ungraded check questions on the way to its graded quiz. With `--retake`, also retakes submitted quizzes that don't have full marks. |
+| **Written / subjective** | Opens the assignment (*Start / Resume Assignment* → *Proceed*), drafts each answer box from the problem statement and the LU material within any stated word limit, in a student voice you can tune, using Markdown in Markdown editors. Clicks *Save*, completes the *Pre-submission Review* checklist, submits and reads the score. A finished answer already in a box is kept; a template or half-written draft is filled in. |
+| **Coding** | Writes the solution into the editor (Monaco, CodeMirror 5/6, Ace or a plain textarea) in the selected language (CPP, Python, ...), keeping the starter code's signatures, or as a complete stdin/stdout program when there is none. If there's a **Run / Test** button, it runs the tests, feeds failures back to the LLM and fixes the code (twice by default) before submitting. |
 | **GitHub repo link** | Uses the link from your `submissions.yaml`, or, with a `GITHUB_TOKEN`, generates a small project, shows you its files, creates the repo and submits its URL. Re-runs reuse the same repo. |
 | **Live / deployed link** | From `submissions.yaml`, or GitHub Pages for a plain HTML/CSS/JS project kalbot created. |
+| **Pull request link** | From `submissions.yaml` (per LU, or one `lu: "*"` entry for every LU that asks). |
 | **Video link** | Only from `submissions.yaml`: record it, paste the link once, and kalbot submits it. |
 
 It never half-submits. If an assignment asks for something kalbot doesn't have (your video link,
@@ -106,6 +108,7 @@ example `setx GEMINI_API_KEY ...`) work too and take precedence.
 | `kalbot run --only quiz,written` | Only these kinds: `quiz`, `written`, `coding`, `links` |
 | `kalbot run --livebook "web" --lu 2.3` | One livebook / one LU (also re-checks an LU marked complete) |
 | `kalbot run --auto` | Hands-free: don't stop to review drafts |
+| `kalbot run --retake` | Also retake submitted quizzes without full marks (opens completed LUs too) |
 | `kalbot run --semester 6` | Override `portal.semester` |
 | `kalbot discover` | Read-only exploration, snapshots, selectors |
 | `kalbot login` | Plain-Chrome login fallback |
@@ -144,10 +147,17 @@ links only you can provide:
 
 ```yaml
 - livebook: Web Development   # part of the livebook name (optional)
-  lu: "1.4"                   # LU number in quotes, or part of its title
+  lu: "1.4"                   # LU number in quotes, part of its title, or "*" for every LU
   video: https://www.loom.com/share/abc123
   # github: / live: / pr: / link: work the same way
+
+- livebook: Integrated Work    # one PR and one video link for every LU of this livebook that asks
+  lu: "*"
+  pr: https://github.com/you/your-repo/pull/1
+  video: https://drive.google.com/file/d/.../view
 ```
+
+Entries for a specific LU win over `lu: "*"` entries.
 
 With `GITHUB_TOKEN` set, kalbot can create the repo for "submit your GitHub repository" tasks: it
 asks the LLM for a small, complete project with a README, shows you the files, then creates a
@@ -172,7 +182,8 @@ needs what you change. Every option is documented in
 | Don't run tests / fewer fix rounds | `coding.run_tests`, `coding.max_fix_rounds` |
 | Prefix or privatise created repos | `github.repo_prefix`, `github.private` |
 | Slow portal | `timeouts.*` |
-| Gemini free tier rate-limits you | `llm.min_seconds_between_calls: 6` |
+| Gemini free tier rate-limits you | `llm.min_seconds_between_calls` (5 by default), `llm.fallback_models` |
+| Retake quizzes without full marks every run | `run.retake_completed: true` |
 
 ## Output
 
@@ -201,7 +212,8 @@ attributes. Then set the matching option in `config.yaml`:
 | Done/todo wrong on the Learning Path | `patterns.lu_completed` / `lu_not_completed`, or `run.trust_list_completion: false` |
 | Quiz not found / not started | `texts.start`, `texts.tabs` |
 | Quiz options or question text wrong | `selectors.quiz_option`, `selectors.quiz_question` |
-| Answer boxes not found | `selectors.task_field`, `texts.task_submit` |
+| Answer boxes not found | `selectors.task_field`, `texts.task_submit`, `texts.start` (Start/Resume Assignment) |
+| Save / Pre-submission Review not clicked | `texts.save`, `texts.pre_submit`, `texts.proceed` |
 | A comment box was picked up | `patterns.task_exclude` |
 | Wrong kind of link detected | `patterns.link_github`, `link_live`, `link_video`, `link_pr` |
 | Run/Test output not understood | `texts.run`, `patterns.run_pass`, `patterns.run_fail` |
@@ -212,6 +224,11 @@ and ask it to run `kalbot discover`, read the snapshots and adjust `config.yaml`
 it can see the real pages.
 
 ## Switching to Claude
+
+The default Gemini model is `gemini-3.5-flash-lite`. When it is out of quota (429) or overloaded (503),
+kalbot rotates through `llm.fallback_models`, each with its own free-tier quota, and waits 5 seconds
+between calls (`llm.min_seconds_between_calls`; set 0 with a paid key). A key set with `setx` is found
+even in a terminal opened before you set it.
 
 Put `ANTHROPIC_API_KEY=...` in `.env` and set `llm.provider: claude` in `config.yaml`. The model is
 `llm.models.claude` (default `claude-opus-5-5`; `claude-sonnet-5-5` or `claude-haiku-4-5` cost

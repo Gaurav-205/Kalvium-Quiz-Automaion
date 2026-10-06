@@ -23,9 +23,8 @@ from kalbot.llm import count_words
 pytestmark = pytest.mark.e2e
 
 LINKS = """
-- livebook: philosophy
-  lu: "2.2"
-  github: https://github.com/student/ethics-checker
+- lu: "*"                     # every LU that asks for a pull request link
+  pr: https://github.com/student/philosophy/pull/1
 - livebook: web dev
   lu: portfolio
   video: https://www.loom.com/share/0123456789abcdef
@@ -40,7 +39,7 @@ def env(tmp_path_factory, browser):
     d = tmp_path_factory.mktemp("kalbot")
     cfg = {
         "portal": {"base_url": base},
-        "llm": {"provider": "fake", "models": {"fake": "fake-model"}},
+        "llm": {"provider": "fake", "models": {"fake": "fake-model"}, "min_seconds_between_calls": 0},
         "browser": {**browser, "headless": True},
         "delays": {"action_min_s": 0.05, "action_max_s": 0.1},
         "timeouts": {"settle_ms": 1500, "lu_settle_ms": 3000, "list_ms": 8000, "question_change_ms": 8000,
@@ -94,8 +93,8 @@ def test_1_login_and_discover(env, capsys):
     assert "NOT LOGGED IN" in out and "Login detected" in out
     assert "Introduction to Philosophy" in out and "Data Structures" in out and "Web Development" in out
     for line in ("1.1  quiz already submitted", "1.2  behind a Start button", "1.3  assignment: written (1 box)",
-                 "2.1  quiz question visible", "2.2  assignment: links: github, video",
-                 "2.3  quiz question visible", "2.4  no quiz or assignment found"):
+                 "2.1  quiz question visible", "2.2  assignment: links: pr, video",
+                 "2.3  quiz question visible", "2.4  no quiz or assignment found", "2.5  behind a Start button"):
         assert line in out, line
     assert state(env) == before, "discovery must not submit or run anything"
     cfg = yaml.safe_load(Path(env["config"]).read_text(encoding="utf-8"))
@@ -187,9 +186,17 @@ def test_8_full_run(env, capsys):
     assert submitted_scores(env, "2505/21") == [5]      # ARIA radios, rating widget ignored, JSON retry
     assert submitted_scores(env, "2505/23") == [5]      # plain <div> options behind a Quiz tab
     assert submitted_scores(env, "2506/11") == [5]      # quiz in an iframe
-    assert submitted_scores(env, "2506/12") == []       # already submitted: untouched
+    assert submitted_scores(env, "2506/12") == []       # already submitted (4/5): untouched without --retake
     assert submitted_scores(env, "2505/12") == [2, 5]   # done in test 7: untouched
+    assert submitted_scores(env, "2506/14") == [5]      # check questions in the lesson, then the graded quiz
+    assert "Finished 2 check question(s)" in out
     tasks = s["tasks"]
+    # the portal's assignment workspace: Start -> Proceed -> Markdown editor -> Save -> review checklist -> Submit
+    essay = tasks["2505/25"]["answer"]
+    assert essay.startswith("## My position") and count_words(essay) > 100
+    assert s["saved"]["2505/25"] and "2505/25" in s["reviewed"]
+    # Monaco reachable only through monaco.editor.getModels(); no starter code -> a full stdin/stdout program
+    assert "int main()" in tasks["2507/17"]["code"] and "cin >>" in tasks["2507/17"]["code"]
     # written: textarea with "minimum 200 words" (first draft too short -> rewritten)
     assert 200 <= count_words(tasks["2505/13"]["answer"]) <= 300 and FakeProvider.revised
     # two rich-text boxes behind one Submit with a confirm modal
@@ -207,20 +214,28 @@ def test_8_full_run(env, capsys):
                                 "live": "https://student.github.io/portfolio-website/",
                                 "video": "https://www.loom.com/share/0123456789abcdef"}
     assert tasks["2507/15"]["short"] == "HyperText Markup Language"
-    # never half-submitted: a link kalbot doesn't have
+    # never half-submitted: a link kalbot doesn't have (2.2 has its PR link from the "*" entry, no video)
     assert "2505/22" not in tasks and "2507/16" not in tasks
-    assert "Submitted: 9" in out and "Errors: 0" in out and "Needs you: 3" in out
+    assert "Submitted: 12" in out and "Errors: 0" in out and "Needs you: 3" in out
     assert "needs your video link" in out
     assert not FakeProvider.unknown
     assert FakeProvider.invalid_sent == INVALID_ONCE
     saved = json.loads((env["dir"] / "runs" / "state.json").read_text(encoding="utf-8"))
     assert saved["repos"]["Web Development|1.4"]["github"].endswith("/portfolio-website")
-    assert (latest_run(env) / "report.html").read_text(encoding="utf-8").count("<details") >= 9
+    assert (latest_run(env) / "report.html").read_text(encoding="utf-8").count("<details") >= 12
     fields = [r for r in latest_csv(env) if r["event"] == "task_field"]
     assert fields and not any("comment" in r["question"].lower() for r in fields)
 
 
-def test_9_nothing_left(env, capsys):
+def test_9_retake_improves_a_submitted_quiz(env, capsys):
+    assert run(env, "--retake", "--livebook", "data", "--lu", "1.2") == 0   # 4/5 before; Retake asks "Proceed"
+    assert submitted_scores(env, "2506/12") == [5]
+    assert run(env, "--retake", "--livebook", "data", "--lu", "1.3") == 0   # already 5/5: left alone
+    assert submitted_scores(env, "2506/13") == []
+    assert "full marks" in capsys.readouterr().out
+
+
+def test_10_nothing_left(env, capsys):
     before = state(env)
     repos = dict(env["gh"].repos)
     assert run(env, "--auto") == 0

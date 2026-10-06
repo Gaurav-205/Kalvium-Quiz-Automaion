@@ -56,7 +56,8 @@ class LUView:
 
     @property
     def ready(self) -> bool:
-        return self.quiz_kind in ("question", "start") or self.quiz_done or bool(self.tasks)
+        return self.quiz_kind in ("question", "start") or self.quiz_done or bool(self.quiz.get("retake")) \
+            or bool(self.tasks)
 
     def describe(self) -> str:
         if self.quiz_done and not self.open_groups:
@@ -241,10 +242,12 @@ class Navigator:
     # ------------------------------------------------------------------ one LU
 
     def open_lu(self, lb: dict, lu: LU) -> None:
+        self.ops.close_overlay()   # an assignment workspace left open by the previous LU
         if lu.href:
             self.ops.goto(lu.href)
         else:
             self.open_livebook(lb)
+            self.ops.close_overlay()
             fresh = {x.number: x for x in self.open_learning_path()}
             if lu.number not in fresh:
                 raise UnexpectedState(f"LU {lu.number} not found on the Learning Path")
@@ -256,6 +259,23 @@ class Navigator:
                 pass   # LU may open in place (panel/drawer)
             self.ops.settle()
         self.ops.pause()
+        self.go_to_lessons()
+
+    def go_to_lessons(self) -> None:
+        """An LU opens on an overview card; its lessons, quizzes and assignments are under /lessons."""
+        if urlparse(self.page.url).path.rstrip("/").endswith("/lessons"):
+            return
+        btn = self.page.locator('button[aria-label="Go to Lessons"], a[href$="/lessons"], '
+                                'button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")').first
+        try:
+            if btn.is_visible(timeout=3000):
+                btn.click()
+                self.ops.settle()
+                self.ops.pause()
+            elif re.search(r"/livebooks/\d+/[0-9a-f-]{20,}$", urlparse(self.page.url).path.rstrip("/")):
+                self.ops.goto(self.page.url.split("?")[0].rstrip("/") + "/lessons")
+        except PWError as e:
+            log.debug("lessons navigation: %s", first_line(e))
 
     def inspect(self) -> LUView:
         frame, st, done = self.quiz.locate(self.page)
@@ -299,6 +319,10 @@ class Navigator:
         v = self.inspect()
         return v if v.quiz_kind == "question" or v.open_groups else None
 
+    def _started_or_confirm(self) -> LUView | None:
+        self.ops.confirm(self.cfg["texts"]["proceed"], "confirm Start")   # "Proceed?" after Start Assignment
+        return self._started()
+
     def press_start(self) -> LUView:
         """Click Start (quiz or assignment) until a question or an answer box appears."""
         for _ in range(3):   # some have an instructions screen with a second Start
@@ -307,7 +331,7 @@ class Navigator:
                 break
             self.ops.click(frame, '[data-kqb-btn="start"]', "Start")
             self.ops.pause()
-            got = self.ops.poll(self._started, self.t["question_change_ms"])
+            got = self.ops.poll(self._started_or_confirm, self.t["question_change_ms"])
             if got:
                 return got
         raise UnexpectedState("clicked Start but no quiz or assignment appeared")
@@ -325,7 +349,7 @@ class Navigator:
         material = self.lu_material()
         handled = False
 
-        if v.quiz_kind == "start" and not v.quiz_done and not v.open_groups:
+        if v.quiz_kind == "start" and not v.quiz_done and not v.open_groups and not (v.tasks and v.tasks.done):
             if lu.type_hint == "quiz" and not self.enabled["quiz"]:
                 self.runlog.add(ctx, "skipped", "quiz", "quiz not selected (--only)")
                 return
@@ -339,7 +363,8 @@ class Navigator:
             v = self.press_start()
             material = self.lu_material() or material
 
-        if v.quiz_kind == "question" and not v.quiz_done:
+        improve = v.quiz_done and self.quiz.can_improve(v.quiz)
+        if (v.quiz_kind == "question" and not v.quiz_done) or improve:
             handled = True
             if not self.enabled["quiz"]:
                 self.runlog.add(ctx, "skipped", "quiz", "quiz not selected (--only)")
@@ -347,7 +372,8 @@ class Navigator:
                 self._record_quiz(ctx, self.quiz.run(self.page, ctx, material))
                 v = self.inspect() if not self._limit_reached() else v
         elif v.quiz_done and v.quiz_kind != "question":
-            self.ui.note("Quiz already submitted.", indent=1)
+            perfect = " with full marks" if v.quiz.get("maxScore") else ""
+            self.ui.note(f"Quiz already submitted{perfect}.", indent=1)
 
         outcomes = []
         if v.tasks and v.tasks.groups and not self._limit_reached():
@@ -437,7 +463,8 @@ class Navigator:
             if self._limit_reached():
                 return
             ctx = {"livebook": lb["name"], "lu": lu.number, "lu_title": lu.title}
-            if lu.completed and self.cfg["run"]["trust_list_completion"] and not self.lu_filter:
+            retake = self.cfg["run"].get("retake_completed")   # a complete LU may hold a quiz without full marks
+            if lu.completed and self.cfg["run"]["trust_list_completion"] and not self.lu_filter and not retake:
                 self.runlog.add(ctx, "done", lu.type_hint, "complete on the Learning Path")
                 self.runlog.row(event="skip_completed", note="complete on Learning Path", **ctx)
                 continue

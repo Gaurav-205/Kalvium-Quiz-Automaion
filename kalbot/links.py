@@ -91,13 +91,17 @@ class LinkBook:
         return cls(entries, path, problems)
 
     def lookup(self, livebook: str, lu_number: str, lu_title: str) -> dict[str, str]:
+        """Links for one LU. Entries for that LU win over `lu: "*"` entries (links for every LU)."""
         out: dict[str, str] = {}
-        for e in self.entries:
+        ordered = [e for e in self.entries if e.get("lu") != "*"] + [e for e in self.entries if e.get("lu") == "*"]
+        for e in ordered:
             lb = e.get("livebook", "").lower()
             if lb and lb not in (livebook or "").lower():
                 continue
             want = e.get("lu", "")
-            if re.fullmatch(r"\d{1,2}\.\d{1,2}", want):
+            if want == "*":
+                pass
+            elif re.fullmatch(r"\d{1,2}\.\d{1,2}", want):
                 if want != lu_number:
                     continue
             elif want.lower() not in (lu_title or "").lower():

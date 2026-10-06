@@ -14,11 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from mock_portal import QUIZZES  # noqa: E402
+from mock_portal import CHECKS, QUIZZES  # noqa: E402
 
 from kalbot import llm, prompts  # noqa: E402
 
-ALL_QUESTIONS = {q["text"]: q for qs in QUIZZES.values() for q in qs}
+ALL_QUESTIONS = {q["text"]: q for qs in [*QUIZZES.values(), *CHECKS.values()] for q in qs}
 WRONG_FIRST = {q["text"] for q in QUIZZES[("2505", "12")][:3]}     # forces a fail, then a retake
 INVALID_ONCE = {QUIZZES[("2505", "21")][1]["text"]}                  # exercises the JSON retry
 
@@ -31,6 +31,11 @@ GOOD_FIZZ = ("def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n   
              "            out.append('FizzBuzz')\n        elif i % 3 == 0:\n            out.append('Fizz')\n"
              "        elif i % 5 == 0:\n            out.append('Buzz')\n        else:\n"
              "            out.append(str(i))\n    return out\n")
+TWO_SUM = ("#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n"
+           "    vector<long long> a(n); for (auto &x : a) cin >> x;\n    long long t; cin >> t;\n"
+           "    unordered_map<long long, int> seen;\n    for (int j = 0; j < n; j++) {\n"
+           "        if (seen.count(t - a[j])) { cout << seen[t - a[j]] << ' ' << j << endl; return 0; }\n"
+           "        seen[a[j]] = j;\n    }\n    return 0;\n}\n")
 PROJECT = {
     "repo_name": "portfolio-website", "description": "Personal portfolio with About and Projects sections",
     "static_site": True, "requires_existing_repo": False,
@@ -69,6 +74,8 @@ class FakeProvider(llm.LLMProvider):
                 return f"```python\n{GOOD_FIZZ if 'produced this output' in p else BUGGY_FIZZ}```"
             if "add(a, b)" in p:
                 return "Here you go:\n```python\ndef add(a, b):\n    return a + b\n```"
+            if "Two Sum" in p:
+                return f"```cpp\n{TWO_SUM}```"
             FakeProvider.unknown.append(p)
             return "```\npass\n```"
         if req.kind == "written":
@@ -80,6 +87,8 @@ class FakeProvider(llm.LLMProvider):
                 return words(lo // 4)           # too short on purpose: kalbot must ask for a rewrite
             if "Your draft below" in p:
                 FakeProvider.revised.append(p)
+            if "Markdown editor" in req.system:
+                return f"## My position\n\n{words((lo + hi) // 2)}\n\n## Counter-argument\n\n{words(40)}"
             return words((lo + hi) // 2)
         q = next((q for t, q in ALL_QUESTIONS.items() if t in p), None)
         if q is None:

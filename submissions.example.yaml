@@ -5,7 +5,8 @@
 # assignment and lists it under "Needs you".
 #
 #   livebook:  part of the livebook name (optional, case-insensitive)
-#   lu:        the LU number in quotes ("2.3"), or part of the LU title
+#   lu:        the LU number in quotes ("2.3"), part of the LU title, or "*" for every LU
+#              (entries for a specific LU win over "*")
 #   github:    repository URL               pr:     pull request URL
 #   live:      deployed site URL            video:  Loom / YouTube / Drive video URL
 #   link:      any other link the LU asks for
@@ -17,3 +18,8 @@
 - lu: Portfolio
   github: https://github.com/your-name/portfolio
   live: https://your-name.github.io/portfolio/
+
+# One link for every LU of a livebook that asks for it:
+# - livebook: Integrated Work
+#   lu: "*"
+#   pr: https://github.com/your-name/your-repo/pull/1

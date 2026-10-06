@@ -11,9 +11,8 @@ import logging
 from dataclasses import dataclass, field
 
 from playwright.sync_api import Error as PWError
-from playwright.sync_api import TimeoutError as PWTimeout
 
-from .browser import PageOps, UnexpectedState
+from .browser import PageOps, UnexpectedState, first_line
 from .llm import LLM, Question
 
 log = logging.getLogger("kalbot.quiz")
@@ -73,7 +72,7 @@ class QuizSolver:
         """
         best = None
         completed = False
-        for frame in page.frames:
+        for frame in self.ops.frames():
             try:
                 st = self.state(frame)
             except PWError as e:
@@ -99,9 +98,16 @@ class QuizSolver:
 
     # ------------------------------------------------------------------ main entry
 
+    def can_improve(self, st: dict) -> bool:
+        """--retake: a submitted quiz without a perfect score that offers Retake."""
+        return bool(self.opts.get("retake_completed") and st.get("retake") and not st.get("maxScore"))
+
     def run(self, page, ctx: dict, material: str = "") -> QuizOutcome:
         frame, st, completed = self.locate(page)
-        if completed:
+        if (completed or st["kind"] == "none") and self.can_improve(st):
+            self.ui.step("Submitted before without a perfect score; retaking (--retake).", indent=1)
+            frame, st = self._retake(page)
+        elif completed:
             return QuizOutcome("already_done")
         if st["kind"] == "start":
             frame, st = self.start(page)
@@ -110,7 +116,9 @@ class QuizSolver:
         return self._attempts(page, frame, st, ctx, material)
 
     def start(self, page):
+        proceed = self.cfg["texts"]["proceed"]
         for _ in range(3):   # some quizzes have an instructions screen with a second Start
+            self.ops.confirm(proceed, "confirm Start")
             frame, st, _ = self.locate(page)
             if st["kind"] == "question":
                 return frame, st
@@ -118,7 +126,8 @@ class QuizSolver:
                 break
             self.ops.click(frame, '[data-kqb-btn="start"]', "Start")
             self.ops.pause()
-            got = self.ops.poll(lambda: self._question(page), self.t["question_change_ms"])
+            got = self.ops.poll(lambda: self.ops.confirm(proceed, "confirm Start") and None or self._question(page),
+                                self.t["question_change_ms"])
             if got:
                 return got
         raise UnexpectedState("clicked Start but no question appeared")
@@ -151,16 +160,12 @@ class QuizSolver:
     def _failed(self, r: dict | None) -> bool:
         if not r or not r.get("found"):
             return False
-        if r.get("fail"):
-            return True
-        if r.get("pass"):
-            return False
-        frac = float(self.opts.get("pass_fraction", 0.6))
+        frac = 1.0 if self.opts.get("retake_completed") else float(self.opts.get("pass_fraction", 0.6))
         if r.get("score") is not None and r.get("total"):
             return r["score"] / r["total"] < frac
         if r.get("percent") is not None:
             return r["percent"] < frac * 100
-        return False
+        return bool(r.get("fail")) and not r.get("pass")
 
     def _retake(self, page):
         def has_retake(f) -> bool:
@@ -169,12 +174,14 @@ class QuizSolver:
             except PWError:
                 return False
 
-        frame = next((f for f in page.frames if has_retake(f)), None)
+        frame = next((f for f in self.ops.frames() if has_retake(f)), None)
         if frame is None:
             raise UnexpectedState("Retake button disappeared")
         self.ops.click(frame, '[data-kqb-btn="retake"]', "Retake")
         self.ops.pause()
-        got = self.ops.poll(lambda: self._question_or_start(page), self.t["question_change_ms"])
+        proceed = self.cfg["texts"]["proceed"]
+        got = self.ops.poll(lambda: self.ops.confirm(proceed, "confirm Retake") and None or
+                            self._question_or_start(page), self.t["question_change_ms"])
         if not got:
             raise UnexpectedState("clicked Retake but no quiz appeared")
         frame, st = got
@@ -196,7 +203,21 @@ class QuizSolver:
                 if st["kind"] != "question":
                     if st.get("submitBtn"):      # a review page with only Submit on it
                         return answers, items, self._submit(page, frame)
-                    raise UnexpectedState(f"question {n} did not appear")
+                    # a lesson's ungraded check questions end here; the graded quiz may start below
+                    self.ops.call(None, "scrollAll")
+                    self.ops.pause()
+                    frame, st, _ = self.locate(page)
+                    if st["kind"] == "start":
+                        self.ui.step(f"Finished {n - 1} check question(s); starting the graded quiz.", indent=1)
+                        frame, st = self.start(page)
+                        prev_fp = None
+                    elif st.get("submitBtn"):
+                        return answers, items, self._submit(page, frame)
+                    elif st["kind"] != "question":
+                        self.ui.note(f"Answered {n - 1} check question(s); no graded quiz followed.", indent=1)
+                        return answers, items, {"found": True, "score": None, "total": None, "percent": None,
+                                                "pass": True, "fail": False, "fresh": [],
+                                                "snippet": f"{n - 1} check questions answered"}
 
             prog = st.get("progress") or [n, None]
             q = Question(text=st["question"], options=st["options"], multi=bool(st["multi"]),
@@ -241,20 +262,25 @@ class QuizSolver:
     def _wait_next_question(self, page, frame, prev_fp):
         """Wait for the question text/options to change after clicking Next."""
         try:
+            self.ops.ensure(frame)
             frame.wait_for_function(
                 "a => !!window.__kqb && window.__kqb.fingerprint(a.cfg) !== a.prev",
                 arg={"cfg": self.ops.jscfg, "prev": prev_fp},
-                timeout=self.t["question_change_ms"], polling=250)
-        except PWTimeout:
-            raise UnexpectedState("question did not change after clicking Next") from None
-        except PWError as e:   # frame navigated or detached; re-locate below
-            log.debug("wait_for_function: %s", e)
+                timeout=min(self.t["question_change_ms"], 10000), polling=250)
+        except PWError as e:   # timed out (checked below), or the frame navigated: re-locate
+            log.debug("wait_for_function: %s", first_line(e))
         self.ops.pause()
         # mid-transition the old question may be gone before the new one renders
         got = self.ops.poll(lambda: self._question(page, not_fp=prev_fp), 5000)
         if got:
             return got
         frame, st, _ = self.locate(page)
+        if st["kind"] == "question" and st.get("fingerprint") == prev_fp:
+            self.ops.call(None, "scrollAll")   # the next question may render further down
+            self.ops.pause()
+            frame, st, _ = self.locate(page)
+            if st["kind"] == "question" and st.get("fingerprint") == prev_fp:
+                raise UnexpectedState("question did not change after clicking Next")
         return frame, st
 
     # ------------------------------------------------------------------ selecting + verifying

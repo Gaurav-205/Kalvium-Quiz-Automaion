@@ -12,16 +12,21 @@ QUIZ_JSON = '{"answer_indices": [<0-based ints>], "confidence": "high|medium|low
 WRITE_SYSTEM = (
     "You are a student completing a written assignment for a college course on the Kalvium learning "
     "platform. {style}\n"
-    "Reply with the answer text only: no title, no preamble, no word count, and no Markdown headings or "
-    "bold text. Separate paragraphs with a blank line. Use simple '- ' bullets only if the question asks "
-    "for a list."
+    "Follow every instruction, required section and rubric item in the assignment. "
+    "Reply with the answer text only: no preamble and no word count. {format}"
 )
+PLAIN_FORMAT = ("No Markdown headings or bold text. Separate paragraphs with a blank line. Use simple '- ' "
+                "bullets only if the question asks for a list.")
+MARKDOWN_FORMAT = ("The answer box is a Markdown editor: use Markdown headings, lists and tables where they "
+                   "make the answer clearer, matching any structure the assignment asks for.")
 
 CODE_SYSTEM = (
     "You are an expert programmer solving a coding exercise from a college course on the Kalvium learning "
     "platform. Reply with the complete final contents of the code editor in one fenced code block and "
     "nothing else. Keep any given function names, signatures, class names and input/output format exactly. "
-    "Do not print prompts or extra output unless the problem asks for it."
+    "Do not print prompts or extra output unless the problem asks for it. If there is no starter code, "
+    "write a complete program (imports/headers and main) that reads standard input and prints standard "
+    "output exactly as the problem specifies."
 )
 
 PROJECT_SYSTEM = (
@@ -53,6 +58,7 @@ def quiz_prompt(q, course: str = "", previous: list[int] | None = None) -> str:
         lines += ["", "Code in the question:", "```", block.rstrip(), "```"]
     lines += ["", "Options (0-based index):"]
     lines += [f"[{i}] {opt}" for i, opt in enumerate(q.options)]
+    lines.append("Indices are 0-based: 0 is the first option, 1 the second.")
     lines.append("")
     if q.multi:
         lines.append("This question may have MORE THAN ONE correct option. Select every correct option.")
@@ -81,9 +87,11 @@ def write_prompt(spec, course: str = "") -> str:
     lines.append("")
     if spec.short:
         lines.append(f"Length: one short line, at most {spec.max_chars} characters.")
-    else:
+    elif spec.words:
         lo, hi = spec.words
         lines.append(f"Length: between {lo} and {hi} words (aim for about {(lo + hi) // 2}).")
+    else:
+        lines.append("Length: as long as it takes to cover every requirement fully and well, without padding.")
     lines += ["", "Write the answer now."]
     return "\n".join(lines).strip()
 

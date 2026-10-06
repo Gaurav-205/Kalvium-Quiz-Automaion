@@ -58,6 +58,7 @@ class Field:
     run: int
     kind: str = ""           # text | short | code | link | other (a box kalbot won't guess, e.g. "Your name")
     link_kind: str = ""      # github | pr | live | video | link
+    md: bool = False         # a Markdown editor (monospace, but never a code box)
 
     @property
     def key(self) -> tuple:
@@ -169,6 +170,12 @@ def word_limits(texts: list[str], default: tuple[int, int]) -> tuple[int, int]:
     return default
 
 
+def problem_statement(material: str, size: int = 4000) -> str:
+    """The assignment brief, from its 'Problem Statement' heading on (portal pages put it there)."""
+    i = (material or "").lower().find("problem statement")
+    return material[i:i + size] if i >= 0 else ""
+
+
 def run_verdict(text: str, patterns: dict) -> str:
     """pass | fail | unknown from the text a Run/Test button produced."""
     frac = r"(\d+)\s*(?:/|out of|of)\s*(\d+)"
@@ -221,8 +228,8 @@ class TaskSolver:
     # ------------------------------------------------------------------ detection
 
     def _classify(self, f: Field) -> Field:
-        if f.tag == "editor" or (f.tag == "textarea" and (f.codeHint or (f.mono and CODE_WORDS.search(
-                f"{f.label}\n{f.prompt}")))):
+        if f.tag == "editor" or (f.tag == "textarea" and not f.md and (
+                f.codeHint or (f.mono and CODE_WORDS.search(f.label)))):
             f.kind = "code"
         elif f.tag == "input":
             if linkmod.is_link_field(f.label, f.prompt, f.type, self.pat):
@@ -385,24 +392,30 @@ class TaskSolver:
 
         # 3. written answers and code
         texts = [d for d in drafts if d.field.kind in ("text", "short")]
+        brief = problem_statement(material)
         for d in drafts:
             f = d.field
+            question = f.prompt if len(f.prompt) >= 80 or not brief else f"{brief}\n\n{f.prompt}".strip()
             if f.kind in ("text", "short"):
-                lo, hi = word_limits([f"{f.label}\n{f.prompt}", material], tuple(self.cfg["written"]["default_words"]))
+                # a full assignment brief (or a Markdown editor) gets as much as it needs, unless it sets a limit
+                default = None if (f.md or brief) else tuple(self.cfg["written"]["default_words"])
+                words = word_limits([f"{f.label}\n{f.prompt}", material], default)
                 have = f.value.strip()
-                if have and (f.kind == "short" or lo <= count_words(have) <= hi * 1.2):
+                lo, hi = words or (1, 10 ** 6)
+                n = count_words(have)
+                if (f.kind == "short" and have) or (n >= 15 and lo <= n <= hi * 1.2):
                     d.value, d.source = have, "already in the box"   # your own finished answer
                     continue
                 self.ui.note(f"Writing: {f.title}", indent=2)
                 max_chars = int(f.maxlength or self.cfg["written"]["short_answer_max_chars"])
-                spec = WriteSpec(f.prompt or f.label, f.label, (lo, hi), f.kind == "short", max_chars,
-                                 [o.field.title for o in texts if o is not d], existing=have)
+                spec = WriteSpec(question or f.label, f.label, words, f.kind == "short", max_chars,
+                                 [o.field.title for o in texts if o is not d], existing=have, markdown=f.md)
                 d.value, d.source = self.llm.write(spec, course, material), "AI draft"
                 if f.maxlength:
                     d.value = fit_chars(d.value, f.maxlength)
             elif f.kind == "code":
                 self.ui.note(f"Coding: {f.title}" + (f" ({f.language})" if f.language else ""), indent=2)
-                spec = CodeSpec(f.prompt or f.label, f.language, f.value)
+                spec = CodeSpec(question or f.label, f.language, f.value)
                 d.value, d.source = self.llm.code(spec, course, material), "AI draft"
         return drafts
 
@@ -625,7 +638,47 @@ class TaskSolver:
 
     # ------------------------------------------------------------------ submitting
 
+    def _steps(self, page, frame, g: Group) -> None:
+        """Save, then the Pre-submission Review (tick its checklist, close it), when the page has them."""
+        for step in ("save", "review"):
+            idx = [f.index for f in self._refresh(frame, g.keys).fields]
+            found = self.ops.call(frame, "taskSteps", self.ops.jscfg, idx)
+            if not found.get(step):
+                continue
+            self.ops.click(frame, f'[data-kqb-step="{step}"]', f"'{found[step]}'")
+            self.ops.settle()
+            self.ops.pause()
+            if step == "review":
+                self._checklist()
+
+    def _checklist(self) -> None:
+        def find():
+            for fr in self.ops.frames():
+                c = self.ops.call(fr, "checklist", self.ops.jscfg)
+                if c["boxes"] or (c["proceed"] and c["inDialog"]):
+                    return fr, c
+            return None
+
+        got = self.ops.poll(find, 5000, 300)
+        if not got:
+            return
+        fr, c = got
+        for i in range(c["boxes"]):
+            box = fr.locator(f'[data-kqb-chk="{i}"]').first
+            try:
+                box.check(timeout=self.t["action_ms"])
+            except PWError:   # a styled checkbox whose <input> is hidden behind its label
+                box.dispatch_event("click")
+        self.ui.note(f"Pre-submission review: ticked {c['boxes']} item(s)", indent=2)
+        again = self.ops.call(fr, "checklist", self.ops.jscfg)
+        if again["proceed"]:
+            self.ops.click(fr, '[data-kqb-btn="proceed"]', "close the pre-submission review")
+            self.ops.settle()
+            self.ops.pause()
+
     def _submit(self, page, frame, g: Group) -> dict:
+        self._steps(page, frame, g)
+
         def enabled():
             fresh = self._refresh(frame, g.keys)
             raw = self.ops.call(frame, "tasks", self.ops.jscfg)

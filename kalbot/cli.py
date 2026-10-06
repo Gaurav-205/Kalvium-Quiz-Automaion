@@ -22,6 +22,7 @@ examples:
   kalbot run --only quiz,written          just these kinds (quiz, written, coding, links)
   kalbot run --livebook "data" --lu 2.3   one LU (also re-checks an LU marked complete)
   kalbot run --auto                       hands-free: don't stop to review drafts
+  kalbot run --retake                     also retake submitted quizzes without full marks
   kalbot login                            plain-Chrome login if Google blocks the automated window
 """
 
@@ -54,6 +55,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     run.add_argument("--livebook", help="only livebooks whose name contains this text")
     run.add_argument("--lu", help='only this LU number, e.g. "1.2"')
     run.add_argument("--only", help=f"comma-separated kinds to do: {','.join(TASK_KINDS)}")
+    run.add_argument("--retake", action="store_true",
+                     help="also retake submitted quizzes that don't have full marks (opens completed LUs too)")
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--auto", action="store_true", help="don't stop to review written/coding/link drafts")
     mode.add_argument("--review", action="store_true", help="always stop to review drafts (overrides run.review)")
@@ -105,7 +108,7 @@ def task_filter(cfg: dict, only: str | None) -> dict[str, bool]:
 def main(argv=None) -> int:
     for stream in (sys.stdout, sys.stderr):   # never crash on odd characters in a Windows console
         try:
-            stream.reconfigure(errors="replace")
+            stream.reconfigure(errors="replace", line_buffering=True)
         except (AttributeError, ValueError):
             pass
     from .ui import UI
@@ -118,6 +121,8 @@ def main(argv=None) -> int:
             cfg["portal"]["semester"] = args.semester
         if args.headless:
             cfg["browser"]["headless"] = True
+        if getattr(args, "retake", False):
+            cfg["run"]["retake_completed"] = True
         for w in cfg["_meta"]["warnings"]:
             ui.warn(w)
         if args.command == "login":
