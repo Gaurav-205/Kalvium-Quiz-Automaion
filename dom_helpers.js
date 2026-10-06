@@ -3,7 +3,7 @@
 // attributes, so Python can click exactly the element that was analysed and
 // never has to guess.
 (() => {
-  const VERSION = 1;
+  const VERSION = 6;
   if (window.__kqb && window.__kqb.version === VERSION) return;
 
   const K = { version: VERSION, items: [], root: null };
@@ -273,6 +273,7 @@
       let nav = Infinity;
       for (const n of navs) nav = Math.min(nav, distUp(root, n));
       if (nav > 7 && texts.every((t) => t.length <= 2)) continue;  // star ratings, emoji scales
+      if (nav > 7 && !q.progress && !root.closest('#test-component, [id="test-component"]')) continue;
       const score = (g.source === 'config' ? 100 : 0) + (nav <= 7 ? 20 - nav : 0) + (q.text ? 5 : 0);
       if (!best || score > best.score) best = { g, els, texts, root, q, score };
     }
@@ -340,7 +341,9 @@
   K.state = (cfg) => {
     clearMarks('data-kqb-opt');
     clearMarks('data-kqb-btn');
-    const out = { kind: 'none', url: location.href, completed: any(res(cfg.completed), mainText()) };
+    const txt = mainText();
+    const out = { kind: 'none', url: location.href, completed: any(res(cfg.completed), txt) };
+    out.maxScore = /max\s*score|5\s*\/\s*5|100\s*%/i.test(txt);
     const start = buttons(cfg.start).filter((b) => !isDisabled(b));
     const retake = buttons(cfg.retake).filter((b) => !isDisabled(b));
     out.start = start.length > 0;
@@ -435,8 +438,13 @@
     const btnLabels = new Set([...cfg.retake, ...cfg.next, ...cfg.submit, ...cfg.start].map(btnKey));
     const verdictLines = fresh.filter((l) => !btnLabels.has(btnKey(l)));
     const text = verdictLines.join('\n');
-    const fail = any(failRe, text);
-    const pass = any(passRe, text);
+    let fail = any(failRe, text);
+    let pass = any(passRe, text);
+    if (score !== null && total !== null && total > 0) {
+      if (score / total >= 0.6) { pass = true; fail = false; }
+    } else if (percent !== null && percent >= 60) {
+      pass = true; fail = false;
+    }
     if (!snippet) snippet = verdictLines.find((l) => any(failRe, l) || any(passRe, l)) || '';
     clearMarks('data-kqb-btn', 'retake');
     const retake = buttons(cfg.retake).filter((b) => !isDisabled(b));
@@ -554,15 +562,30 @@
     return { attrs: bits.join(' ').slice(0, 3000), progress: String(progress) };
   }
 
-  // Visible text pieces in order, so "<span>1.3 Stacks</span><span>100%</span>"
-  // reads as ["1.3 Stacks", "100%"] rather than "1.3 Stacks100%".
+  // Visible text pieces in order, grouping adjacent text nodes within the same
+  // parent element (e.g. React rendering `{major}.{minor}` as 3 sibling text nodes).
   function segments(el) {
     const out = [];
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let curParent = null;
+    let curBuf = [];
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       const p = n.parentElement;
       if (!p || p.closest('script, style') || !visible(p)) continue;
-      const t = norm(n.textContent);
+      if (!n.textContent || !n.textContent.trim()) continue;
+      if (p === curParent) {
+        curBuf.push(n.textContent);
+      } else {
+        if (curBuf.length) {
+          const t = norm(curBuf.join(''));
+          if (t) out.push(t);
+        }
+        curParent = p;
+        curBuf = [n.textContent];
+      }
+    }
+    if (curBuf.length) {
+      const t = norm(curBuf.join(''));
       if (t) out.push(t);
     }
     return out;
@@ -587,9 +610,9 @@
       const seen = new Set();
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-        if (!numRe.test(n.textContent || '')) continue;
         const host = n.parentElement;
         if (!host || !visible(host) || host.closest('script, style, [data-kqb-opt]')) continue;
+        if (!numRe.test(n.textContent || '') && !numRe.test(textOf(host) || '')) continue;
         let row = host;
         let click = null;
         for (let el = host, i = 0; el && el !== document.body && i < 8; el = el.parentElement, i++) {
@@ -636,14 +659,28 @@
 
   // Scroll every scrollable area to the bottom (lazy-loaded quiz sections).
   K.scrollAll = () => {
-    const els = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => {
-      if (!e) return false;
-      if (e === document.scrollingElement) return true;
-      const st = getComputedStyle(e);
-      return /(auto|scroll)/.test(st.overflowY) && e.scrollHeight > e.clientHeight + 50;
-    });
-    els.forEach((e) => { e.scrollTop = e.scrollHeight; });
-    return els.length;
+    try {
+      const candidates = [document.scrollingElement, ...document.querySelectorAll('main, [role="main"], article, section, div.overflow-y-auto, div.overflow-auto, [data-scroll="true"]')];
+      let scrolled = 0;
+      for (const e of candidates) {
+        if (!e) continue;
+        if (e === document.scrollingElement) {
+          e.scrollTop = e.scrollHeight;
+          scrolled++;
+          continue;
+        }
+        if (e.scrollHeight > e.clientHeight + 50) {
+          const st = getComputedStyle(e);
+          if (/(auto|scroll)/.test(st.overflowY)) {
+            e.scrollTop = e.scrollHeight;
+            scrolled++;
+          }
+        }
+      }
+      return scrolled;
+    } catch (e) {
+      return 0;
+    }
   };
 
   // Mark a tab/button (not a link, never inside nav/header/sidebars) whose text

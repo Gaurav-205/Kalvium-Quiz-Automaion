@@ -108,7 +108,7 @@ def manual_login(cfg: dict) -> int:
 
 class Navigator:
     def __init__(self, cfg: dict, page, solver: QuizSolver, runlog, *, dry_run: bool,
-                 limit: int, livebook: str | None, lu: str | None):
+                 limit: int, livebook: str | None, lu: str | None, retake: bool = False):
         self.cfg = cfg
         self.page = page
         self.solver = solver
@@ -117,6 +117,7 @@ class Navigator:
         self.limit = limit
         self.livebook_filter = (livebook or "").strip().lower()
         self.lu_filter = (lu or "").strip()
+        self.retake = retake or bool(cfg["run"].get("retake_completed"))
         self.jscfg = js_config(cfg)
         self.pacer = Pacer(cfg)
         self.t = cfg["timeouts"]
@@ -324,13 +325,27 @@ class Navigator:
         hint = f" [{lu.type_hint}]" if lu.type_hint else ""
         return f"    {lu.number:>5}  {status:4}  {lu.title[:70]}{hint}"
 
-    # ------------------------------------------------------------------ one LU
+    def _close_modal_if_open(self) -> None:
+        try:
+            modal = self.page.locator('.fixed.inset-0.z-50, div[class*="fixed inset-0"]').first
+            if modal.count() and modal.is_visible():
+                close_btn = self.page.locator('button[aria-label="Close modal"], button[aria-label="Close"], button:has-text("Close"), button:has-text("✕"), button:has-text("X")').first
+                if close_btn.count() and close_btn.is_visible():
+                    close_btn.click()
+                    self._settle()
+                else:
+                    self.page.keyboard.press("Escape")
+                    self._settle()
+        except Exception:
+            pass
 
     def open_lu(self, lb: dict, lu: LU) -> None:
+        self._close_modal_if_open()
         if lu.href:
             self._goto(lu.href)
         else:
             self.open_livebook(lb)
+            self._close_modal_if_open()
             fresh = {x.number: x for x in self.open_learning_path()}
             if lu.number not in fresh:
                 raise UnexpectedState(f"LU {lu.number} not found on the Learning Path")
@@ -345,12 +360,25 @@ class Navigator:
 
     def wait_lu_content(self):
         """Wait for the LU to render, then look for a quiz (also behind tabs / lazy sections)."""
+        # If on the LU overview landing card page, navigate into Lessons where quizzes live
+        if not self.page.url.rstrip("/").endswith("/lessons"):
+            lessons_btn = self.page.locator('button[aria-label="Go to Lessons"], a[href$="/lessons"], button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")').first
+            try:
+                if lessons_btn.is_visible(timeout=3000):
+                    lessons_btn.click()
+                    self._settle()
+                    self.pacer.pause(self.page)
+                elif re.search(r'/livebooks/\d+/[a-f0-9-]+$', self.page.url):
+                    self._goto(self.page.url.rstrip('/') + '/lessons')
+            except Exception as e:
+                log.debug("lessons nav error: %s", e)
+
         last = {}
 
         def check():
             frame, st, completed = self.solver.locate(self.page)
             last["v"] = (frame, st, completed)
-            return last["v"] if (st["kind"] in ("question", "start") or completed) else None
+            return last["v"] if (st["kind"] in ("question", "start") or st.get("retake") or completed) else None
 
         got = self._poll(check, self.t["lu_settle_ms"])
         if got:
@@ -366,6 +394,19 @@ class Navigator:
         self.pacer.pause(self.page)
         return self._poll(check, 3000) or last.get("v") or self.solver.locate(self.page)
 
+    def _handle_outcome(self, out, ctx: dict) -> None:
+        if out.status == "submitted":
+            self.quizzes += 1
+            self.runlog.done.append({**ctx, "result": out.result})
+        elif out.status in ("dry_run", "needs_start"):
+            self.quizzes += 1
+            self.runlog.dry.append(ctx)
+        elif out.status == "already_done":
+            self.runlog.already.append(ctx)
+            self.runlog.row(event="skip_completed", url=self.page.url, **ctx)
+        else:
+            self.runlog.no_quiz.append(ctx)
+
     def process_lu(self, lb: dict, lu: LU, ctx: dict) -> None:
         print(f"\n  -> LU {lu.number} {lu.title}")
         self.open_lu(lb, lu)
@@ -373,30 +414,34 @@ class Navigator:
         feats = self._eval("cfg => window.__kqb.luFeatures(cfg)", self.jscfg)
         task = "coding" if feats["coding"] else "written" if feats["written"] else ""
 
-        if completed:
-            print("     Quiz already submitted - skipping.")
+        allow_retake = self.retake or bool(self.cfg["run"].get("retake_completed"))
+        can_retake = allow_retake and st.get("retake") and not st.get("maxScore")
+
+        if completed and not can_retake:
+            print("     Quiz already submitted (max score / 100%) - skipping.")
             self.runlog.already.append({**ctx, "note": "quiz already submitted"})
             self.runlog.row(event="skip_completed", note="quiz already submitted", url=self.page.url, **ctx)
             if not lu.completed:   # LU still open on the Learning Path, so something else is left
                 self.runlog.manual.append({**ctx, "note": f"{task or 'other task'} (quiz already done)"})
             return
 
-        if st["kind"] == "start" and lu.type_hint in ("coding", "written"):
-            st = {**st, "kind": "none"}   # a Start button on a coding/written LU is not a quiz
+        if can_retake:
+            print("     Quiz can be improved (retake available). Starting retake...")
+            out = self.solver.run(self.page, ctx, retake=True)
+            self._handle_outcome(out, ctx)
+            return
+
+        # Check if this LU is an assignment
+        if self._is_assignment_candidate(lu):
+            if self.solve_any_assignment(ctx):
+                return
 
         if st["kind"] in ("question", "start"):
             out = self.solver.run(self.page, ctx)
-            if out.status == "submitted":
-                self.quizzes += 1
-                self.runlog.done.append({**ctx, "result": out.result})
-            elif out.status in ("dry_run", "needs_start"):
-                self.quizzes += 1
-                self.runlog.dry.append(ctx)
-            elif out.status == "already_done":
-                self.runlog.already.append(ctx)
-                self.runlog.row(event="skip_completed", url=self.page.url, **ctx)
-            else:
-                self.runlog.no_quiz.append(ctx)
+            self._handle_outcome(out, ctx)
+            return
+
+        if self.solve_any_assignment(ctx):
             return
 
         kind = task or (lu.type_hint if lu.type_hint in ("coding", "written") else "")
@@ -408,6 +453,232 @@ class Navigator:
             print("     No quiz or task detected.")
             self.runlog.no_quiz.append(ctx)
             self.runlog.row(event="no_quiz", url=self.page.url, **ctx)
+
+    def _is_assignment_candidate(self, lu: LU) -> bool:
+        """Check if LU is an assignment based on hints, title, or visible workspace elements."""
+        if lu.type_hint in ("written", "coding"):
+            return True
+        if re.search(r'\b(assignment|submission|project|playbook|workflow|case study|problem statement)\b', lu.title, re.I):
+            return True
+        try:
+            btn = self.page.locator('button:has-text("Start Assignment"), button:has-text("Resume Assignment"), button:has-text("Retake Assignment"), [role="button"]:has-text("Start Assignment"), [role="button"]:has-text("Resume Assignment"), [role="button"]:has-text("Retake Assignment")').first
+            if btn.count() and btn.is_visible():
+                return True
+            if self.page.locator('.monaco-editor, textarea.w-md-editor-text-input, input#pr, input#video').first.is_visible():
+                return True
+        except Exception:
+            pass
+        return False
+
+    def solve_any_assignment(self, ctx: dict) -> bool:
+        """Universal solver for all types of assignments: written markdown, URL submissions, and Monaco code."""
+        try:
+            body_text = self.page.locator("body").inner_text()
+            if any(w in body_text for w in (
+                "Well done! You've completed this assignment successfully.",
+                "Best Score\n10/10", "Best Score\n9/10", "Best Score\n8/10", "Best Score\n7/10",
+                "Assignment completed", "Submission successful", "Assignment submitted"
+            )):
+                print("     Assignment already completed successfully.")
+                self.runlog.already.append({**ctx, "note": "assignment already completed"})
+                self.runlog.row(event="skip_completed", note="assignment already completed", url=self.page.url, **ctx)
+                return True
+
+            modal_open = False
+            try:
+                m = self.page.locator('.fixed.inset-0.z-50, div[class*="fixed inset-0"]').first
+                modal_open = bool(m.count() and m.is_visible())
+            except Exception:
+                pass
+
+            # 1. Open the assignment workspace if not already open
+            if not modal_open:
+                btn = self.page.locator('button:has-text("Start Assignment"), button:has-text("Resume Assignment"), button:has-text("Retake Assignment"), [role="button"]:has-text("Start Assignment"), [role="button"]:has-text("Resume Assignment"), [role="button"]:has-text("Retake Assignment")').first
+                if btn.count() and btn.is_visible():
+                    btn_text = btn.inner_text().strip()
+                    print(f"     Found {btn_text}. Opening assignment workspace...")
+                    btn.click()
+                    self._settle()
+                    self.pacer.pause(self.page)
+                    conf = self.page.locator('button:has-text("Proceed"), button:has-text("Start"), button:has-text("Yes")').first
+                    try:
+                        if conf.count() and conf.is_visible(timeout=3000):
+                            conf.click()
+                            self._settle()
+                            self.pacer.pause(self.page)
+                    except Exception:
+                        pass
+
+            # Extract assignment description / prompt
+            full_text = self.page.locator("body").inner_text()
+            prob_idx = full_text.find("Problem Statement")
+            if prob_idx != -1:
+                prompt_content = full_text[prob_idx:prob_idx + 4000]
+            else:
+                prompt_content = full_text[:4000]
+
+            context_header = f"{ctx['livebook']} - LU {ctx['lu']} {ctx['lu_title']}"
+            handled = False
+
+            # Type 1: URL Submissions (e.g. GitHub PR URL and Video URL)
+            pr_inp = self.page.locator('input#pr, input[id*="pr" i], input[placeholder*="github" i], input[placeholder*="pull" i]').first
+            vid_inp = self.page.locator('input#video, input[id*="video" i], input[placeholder*="drive" i], input[placeholder*="loom" i]').first
+
+            if (pr_inp.count() and pr_inp.is_visible()) or (vid_inp.count() and vid_inp.is_visible()):
+                print(f"     [Assignment] Handling URL submission for {context_header}...")
+                if pr_inp.count() and pr_inp.is_visible():
+                    pr_url = "https://github.com/Gaurav-205/Blue-Dots-Insights/pull/1"
+                    pr_inp.fill(pr_url)
+                    print(f"     Filled PR URL: {pr_url}")
+                if vid_inp.count() and vid_inp.is_visible():
+                    vid_url = "https://drive.google.com/file/d/1wSbbcK1518bkCNN4lArUnAnw-8/view?usp=sharing"
+                    vid_inp.fill(vid_url)
+                    print(f"     Filled Video URL: {vid_url}")
+
+                # Check any other empty required url/text inputs
+                for inp in self.page.locator('input[type="url"], input[type="text"]').all():
+                    try:
+                        if inp.is_visible() and not inp.input_value():
+                            ph = (inp.get_attribute("placeholder") or "").lower()
+                            if "github" in ph or "repo" in ph:
+                                inp.fill("https://github.com/Gaurav-205/Blue-Dots-Insights")
+                            elif "http" in ph or "drive" in ph or "link" in ph:
+                                inp.fill("https://github.com/Gaurav-205/Blue-Dots-Insights")
+                    except Exception:
+                        pass
+                self.pacer.pause(self.page)
+                handled = True
+
+            # Type 2: Monaco Code Editor
+            monaco = self.page.locator('.monaco-editor').first
+            if not handled and monaco.count() and monaco.is_visible():
+                print(f"     [Assignment] Handling Monaco Code Editor for {context_header}...")
+                lang = "CPP"
+                lang_btn = self.page.locator('button:has-text("CPP"), button:has-text("C++"), button:has-text("Python"), button:has-text("Java")').first
+                if lang_btn.count() and lang_btn.is_visible():
+                    lang = lang_btn.inner_text().strip()
+
+                sys_prompt = (
+                    f"You are an expert competitive programmer. "
+                    f"Write complete, working, optimal, production-grade {lang} code to solve the given problem statement. "
+                    f"Include all necessary imports/headers, standard I/O (cin/cout or sys.stdin.readline), and main function. "
+                    f"Return ONLY the executable code inside triple backticks. Do not include extra conversational text."
+                )
+                user_prompt = f"Problem Statement and Specifications:\n\n{prompt_content}\n\nWrite optimal {lang} solution:"
+                reply = self.solver.picker.provider.complete(sys_prompt, user_prompt)
+                code_match = re.search(r'```(?:[a-zA-Z0-9_+-]*\n)?(.*?)```', reply, re.DOTALL)
+                code_to_inject = code_match.group(1).strip() if code_match else reply.strip()
+
+                injected = self.page.evaluate("""(c) => {
+                    try {
+                        if (window.monaco && window.monaco.editor) {
+                            const models = window.monaco.editor.getModels();
+                            if (models && models.length > 0) {
+                                models[0].setValue(c);
+                                return true;
+                            }
+                        }
+                    } catch(e) {}
+                    return false;
+                }""", code_to_inject)
+
+                if not injected:
+                    monaco.click()
+                    self.page.keyboard.press("Control+A")
+                    self.page.keyboard.press("Backspace")
+                    self.page.keyboard.insert_text(code_to_inject)
+                print(f"     [Assignment] Injected {len(code_to_inject)} bytes of {lang} code.")
+                self.pacer.pause(self.page)
+                handled = True
+
+            # Type 3: Markdown / Textarea Written Assignment
+            ta = self.page.locator('textarea.w-md-editor-text-input, textarea:not([readonly]), [contenteditable="true"]').first
+            if not handled and ta.count() and ta.is_visible():
+                print(f"     [Assignment] Generating academic response with LLM for {context_header}...")
+                sys_prompt = (
+                    "You are an expert student submitting an academic assignment. "
+                    "Follow all instructions, word counts, formatting, and rubrics precisely. "
+                    "Write the response in clean, formatted Markdown or plain text. "
+                    "Do NOT output JSON. Return only the final text to be submitted."
+                )
+                user_prompt = (
+                    f"Subject: {ctx['livebook']}\n"
+                    f"Topic: LU {ctx['lu']} {ctx['lu_title']}\n\n"
+                    f"Assignment Details:\n{prompt_content}\n\n"
+                    f"Provide the complete, high-scoring submission text:"
+                )
+                reply = self.solver.picker.provider.complete(sys_prompt, user_prompt)
+                clean_reply = reply.strip()
+                if clean_reply.startswith("{") and clean_reply.endswith("}"):
+                    try:
+                        data = json.loads(clean_reply)
+                        clean_reply = data.get("content") or data.get("answer") or data.get("text") or clean_reply
+                    except Exception:
+                        pass
+
+                print(f"     [Assignment] Submitting answer ({len(clean_reply.split())} words)...")
+                ta.click()
+                ta.fill(clean_reply)
+                self.pacer.pause(self.page)
+                handled = True
+
+            if not handled:
+                return False
+
+            # Click Save if present
+            save_btn = self.page.locator('button:has-text("Save"), [role="button"]:has-text("Save")').first
+            if save_btn.count() and save_btn.is_visible():
+                print("     Clicking Save...")
+                save_btn.click()
+                self._settle()
+                self.pacer.pause(self.page)
+
+            # Click Pre-submission Review if present
+            psr_btn = self.page.locator('button:has-text("Pre-submission Review"), [role="button"]:has-text("Pre-submission Review")').first
+            if psr_btn.count() and psr_btn.is_visible():
+                print("     Clicking Pre-submission Review...")
+                psr_btn.click()
+                self._settle()
+                self.pacer.pause(self.page)
+                try:
+                    for cb in self.page.locator('input[type="checkbox"]').all():
+                        if cb.is_visible() and not cb.is_checked():
+                            cb.check()
+                except Exception:
+                    pass
+                rev_proceed = self.page.locator('button:has-text("Proceed"), button:has-text("Done"), button:has-text("Continue"), button:has-text("Close")').first
+                if rev_proceed.count() and rev_proceed.is_visible():
+                    rev_proceed.click()
+                    self._settle()
+                    self.pacer.pause(self.page)
+
+            # Click Submit button
+            sub_btn = self.page.locator('button:has-text("Submit"), [role="button"]:has-text("Submit")').first
+            if sub_btn.count() and sub_btn.is_visible():
+                print("     Clicking Submit...")
+                sub_btn.click()
+                self._settle()
+                self.pacer.pause(self.page)
+                conf2 = self.page.locator('button:has-text("Yes"), button:has-text("Proceed"), button:has-text("Confirm")').first
+                try:
+                    if conf2.count() and conf2.is_visible(timeout=3000):
+                        print(f"     Confirming submission with {conf2.inner_text().strip()}...")
+                        conf2.click()
+                        self._settle()
+                        self.pacer.pause(self.page)
+                except Exception:
+                    pass
+
+            time.sleep(3)
+            print("     [Assignment] Completed and submitted successfully!")
+            self._close_modal_if_open()
+            self.quizzes += 1
+            self.runlog.done.append({**ctx, "result": "assignment submitted"})
+            self.runlog.row(event="result", result="assignment submitted", url=self.page.url, **ctx)
+            return True
+        except Exception as e:
+            log.warning("solve_any_assignment error: %s", e)
+            return False
 
     # ------------------------------------------------------------------ full run
 

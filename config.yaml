@@ -9,17 +9,17 @@ portal:
 llm:
   provider: gemini                 # gemini | claude   (switching needs only this line + the key env var)
   models:
-    gemini: gemini-3.5-flash
+    gemini: gemini-3.5-flash-lite
     claude: claude-opus-5-5
-  fallback_models:                 # tried in order if the model id is not available (HTTP 404)
-    gemini: [gemini-flash-latest, gemini-2.5-flash]
+  fallback_models:                 # tried in order if the model id is not available (HTTP 404/429/503)
+    gemini: [gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-flash-latest]
     claude: []
   api_key_env:                     # keys are read from these environment variables only
     gemini: GEMINI_API_KEY
     claude: ANTHROPIC_API_KEY
   temperature: 0.0                 # Gemini only
   max_output_tokens: 8192          # includes the model's internal thinking on Gemini
-  min_seconds_between_calls: 0     # raise to ~6 if the free tier rate-limits you
+  min_seconds_between_calls: 5     # raise to ~6 if the free tier rate-limits you
   transient_retry_delays: [5, 15, 30, 60]   # seconds, for 429 / 5xx
 
 run:
@@ -27,9 +27,10 @@ run:
   limit: 0                         # same as --limit; 0 = no limit
   dry_run_click_start: false       # dry-run: click "Start Quiz" to preview question 1 (no answers clicked)
   retake_on_fail: true             # retake at most once if the portal says failed / score below pass_fraction
+  retake_completed: false          # retake already-submitted quizzes to improve score (same as --retake)
   pass_fraction: 0.6               # used only when the portal shows a score but no pass/fail text
   expected_questions: 5
-  max_questions_per_quiz: 12       # safety stop
+  max_questions_per_quiz: 30       # safety stop
   trust_list_completion: true      # skip LUs the Learning Path shows as complete without opening them
   snapshot_quiz_pages: true        # save HTML+PNG of question 1 and the result screen of every quiz
   login_timeout_minutes: 10
@@ -75,10 +76,10 @@ selectors:
 
 texts:                             # exact visible button texts (case/arrows/icons ignored)
   start: [Start Quiz, Start the Quiz, Start, Begin Quiz, Begin, Take Quiz, Take the Quiz,
-          Attempt Quiz, Attempt, Attempt Now, Start Assessment, Start Now]
+          Attempt Quiz, Attempt, Attempt Now, Start Assessment, Start Now, Resume Quiz]
   next: [Next, Next Question, Save & Next, Save and Next]
   submit: [Submit, Submit Quiz, Submit Answers, Submit Answer, Submit Assessment, Finish, Finish Quiz]
-  confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK']   # quote Yes/No/On/Off in YAML
+  confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK', Proceed]   # quote Yes/No/On/Off in YAML
   retake: [Retake, Retake Quiz, Try Again, Reattempt, Re-attempt, Attempt Again]
   previous: [Previous, Prev, Back, Previous Question]
   quiz_tabs: [Quiz, Quizzes, Assessment, MCQ, Knowledge Check, Test Yourself, Practice Quiz]
@@ -93,6 +94,8 @@ patterns:
     - 'check[-_ ]?(circle|mark)|circle[-_ ]?check|\btick\b'
     - '(?<![\d.])100\s*%'
     - 'progress=100\b'
+    - '16a34a'
+    - 'bg-\[#16a34a\]'
   lu_not_completed:                # overrides lu_completed
     - '\bincomplete\b'
     - 'not[-_ ]?(yet[-_ ])?(completed?|started|submitted|done)'

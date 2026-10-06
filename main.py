@@ -33,6 +33,8 @@ def parse_args(argv=None):
     ap.add_argument("--semester", type=int, help="override portal.semester from config.yaml")
     ap.add_argument("--discover", action="store_true",
                     help="explore livebooks/LUs read-only, save snapshots and suggested selectors")
+    ap.add_argument("--retake", action="store_true",
+                    help="retake already submitted quizzes if score is not max / 100%%")
     ap.add_argument("--login", action="store_true",
                     help="open plain Chrome on the bot profile to log in (if Google blocks the automated window)")
     ap.add_argument("--config", default=str(ROOT / "config.yaml"), help="path to config.yaml")
@@ -56,7 +58,7 @@ def setup_logging(log_path) -> None:
 def main(argv=None) -> int:
     for stream in (sys.stdout, sys.stderr):   # never crash on odd characters in a Windows console
         try:
-            stream.reconfigure(errors="replace")
+            stream.reconfigure(errors="replace", line_buffering=True)
         except (AttributeError, ValueError):
             pass
     args = parse_args(argv)
@@ -98,7 +100,7 @@ def main(argv=None) -> int:
         page = context.pages[0] if context.pages else context.new_page()
         solver = QuizSolver(cfg, picker, runlog, dry_run=dry)
         nav = Navigator(cfg, page, solver, runlog, dry_run=dry, limit=limit,
-                        livebook=args.livebook, lu=args.lu)
+                        livebook=args.livebook, lu=args.lu, retake=args.retake)
         try:
             nav.wait_for_login()
             if args.discover:

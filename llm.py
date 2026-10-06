@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -71,6 +72,8 @@ class GeminiProvider(LLMProvider):
     def complete(self, system: str, prompt: str) -> str:
         from google.genai import errors
 
+        attempts = 0
+        max_attempts = len(self._models)
         while True:
             model = self._models[0]
             try:
@@ -84,10 +87,20 @@ class GeminiProvider(LLMProvider):
                         response_mime_type="application/json",
                     ),
                 )
-            except errors.ClientError as e:
+            except errors.APIError as e:
+                attempts += 1
+                is_quota = e.code == 429 or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower()
+                is_overloaded = e.code in (500, 502, 503, 504) or "overloaded" in str(e).lower()
                 if e.code == 404 and len(self._models) > 1:
-                    log.warning("Gemini model %s is not available; trying %s", model, self._models[1])
+                    log.warning("Gemini model %s not available (404); dropping and switching to %s", model, self._models[1])
+                    print(f"     [LLM fallback] {model} not available (404); switching to {self._models[1]}")
                     self._models.pop(0)
+                    continue
+                if (is_quota or is_overloaded) and len(self._models) > 1 and attempts < max_attempts:
+                    reason = "quota exceeded (429)" if is_quota else "server overloaded (503)"
+                    log.warning("Gemini model %s %s; rotating to fallback model %s", model, reason, self._models[1])
+                    print(f"     [LLM fallback] {model} {reason}; switching to {self._models[1]}")
+                    self._models.append(self._models.pop(0))
                     continue
                 raise
             return resp.text or ""
@@ -140,6 +153,14 @@ def make_provider(llm_cfg: dict) -> LLMProvider:
     if cls.needs_key:
         env = (llm_cfg.get("api_key_env") or {}).get(name, "")
         key = os.environ.get(env, "").strip() if env else ""
+        if not key and env and sys.platform == "win32" and "PYTEST_CURRENT_TEST" not in os.environ:
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as k:
+                    val, _ = winreg.QueryValueEx(k, env)
+                    key = str(val).strip()
+            except Exception:
+                pass
         if not key:
             raise LLMError(
                 fatal=True, msg=f"Environment variable {env} is not set. On Windows run:  setx {env} \"<your key>\"  "
@@ -169,6 +190,7 @@ def build_prompt(q: Question, context: str = "", previous: list[int] | None = No
         lines += ["", "Code in the question:", "```", block.rstrip(), "```"]
     lines += ["", "Options (0-based index):"]
     lines += [f"[{i}] {opt}" for i, opt in enumerate(q.options)]
+    lines.append("IMPORTANT: Use 0-based indexing for answer_indices (e.g. 0 for the first option, 1 for the second). Do NOT use 1-based index.")
     lines.append("")
     if q.multi:
         lines.append("This question may have MORE THAN ONE correct option. Select every correct option.")
@@ -264,4 +286,19 @@ class AnswerPicker:
         try:
             return parse_answer(reply, len(q.options), q.multi)
         except ValueError as e:
+            # Last-ditch rescue: if model used 1-based indexing (e.g. 1..N instead of 0..N-1)
+            try:
+                start, end = reply.find("{"), reply.rfind("}")
+                if start != -1 and end > start:
+                    data = json.loads(reply[start:end + 1])
+                    idx = data.get("answer_indices")
+                    if isinstance(idx, int) and not isinstance(idx, bool):
+                        idx = [idx]
+                    if isinstance(idx, list) and idx and all(isinstance(v, int) and not isinstance(v, bool) for v in idx):
+                        n_opts = len(q.options)
+                        if min(idx) >= 1 and all(v <= n_opts for v in idx) and any(v == n_opts for v in idx):
+                            adjusted = json.dumps({**data, "answer_indices": [v - 1 for v in idx]})
+                            return parse_answer(adjusted, n_opts, q.multi)
+            except Exception:
+                pass
             raise LLMError(f"LLM reply invalid twice: {e}") from None

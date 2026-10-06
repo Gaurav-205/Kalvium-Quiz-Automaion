@@ -60,8 +60,12 @@ def js_config(cfg: dict) -> dict:
 
 def ensure_helpers(scope) -> None:
     """Inject dom_helpers.js into a page or frame if it is not there yet."""
-    if not scope.evaluate("() => !!(window.__kqb && window.__kqb.version)"):
-        scope.evaluate(JS_HELPERS)
+    try:
+        if not scope.evaluate("() => !!(window.__kqb && window.__kqb.version)"):
+            scope.evaluate(JS_HELPERS)
+    except Exception as e:
+        log.debug("ensure_helpers failed on scope %s: %s", scope, e)
+
 
 
 def stamp() -> str:
