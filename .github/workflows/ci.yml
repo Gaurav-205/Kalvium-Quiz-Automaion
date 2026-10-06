@@ -48,7 +48,7 @@ jobs:
         run: python -m pytest -m e2e -q
       - name: Keep test run output on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-output-py${{ matrix.python-version }}
           path: /tmp/pytest-of-*/**/runs/**
