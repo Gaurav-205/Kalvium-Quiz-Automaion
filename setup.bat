@@ -1,10 +1,18 @@
 @echo off
-REM One-time setup on Windows: Python packages + Playwright's Chrome driver.
+REM One-time setup on Windows: a private Python environment, kalbot, and Playwright's Chrome driver.
 cd /d "%~dp0"
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m playwright install chrome
+where python >nul 2>nul || (echo Python not found. Install Python 3.10+ from python.org and tick "Add python.exe to PATH". & exit /b 1)
+if not exist .venv\Scripts\python.exe python -m venv .venv || goto :error
+.venv\Scripts\python.exe -m pip install --upgrade pip || goto :error
+.venv\Scripts\python.exe -m pip install -e . || goto :error
+.venv\Scripts\python.exe -m playwright install chrome
+if not exist .env copy .env.example .env >nul
 echo.
-echo Setup done. Set your key once (then open a NEW terminal):
-echo     setx GEMINI_API_KEY "your-key-here"
-echo Then run:  python main.py --discover
+echo Setup done. Next:
+echo   1. notepad .env       and paste your Gemini API key after GEMINI_API_KEY=
+echo   2. kalbot doctor      checks everything   (in PowerShell type .\kalbot)
+echo   3. kalbot discover    log in once and look around (read-only)
+exit /b 0
+:error
+echo Setup failed. Check the messages above.
+exit /b 1

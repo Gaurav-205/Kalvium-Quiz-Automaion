@@ -1,9 +1,32 @@
-# Login session for the bot's Chrome profile: never commit
+# Your secrets and settings (copy the *.example files)
+.env
+config.yaml
+submissions.yaml
+
+# Logged-in Chrome profile: never commit
 browser_profile/
-# Run output (may contain quiz content)
+
+# Run output: logs, reports, snapshots, drafts (contains portal content and your answers)
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Output folders of kalbot 1.x
 logs/
 snapshots/
 errors/
-__pycache__/
-.pytest_cache/
-*.pyc

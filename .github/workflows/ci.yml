@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - name: Check the in-page helpers parse
+        run: node --check kalbot/dom.js
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: python -m playwright install --with-deps chromium
+      - name: Unit tests
+        run: python -m pytest -m "not e2e" -q
+      - name: End-to-end tests (mock portal, mock GitHub, fake LLM)
+        run: python -m pytest -m e2e -q
+      - name: Keep test run output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-output-py${{ matrix.python-version }}
+          path: /tmp/pytest-of-*/**/runs/**
+          if-no-files-found: ignore

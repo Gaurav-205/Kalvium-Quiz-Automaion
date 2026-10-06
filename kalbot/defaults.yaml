@@ -1,0 +1,198 @@
+# kalbot default settings.
+#
+# Don't edit this file. Put your changes in config.yaml in the project folder
+# (copy config.example.yaml); they are merged over these defaults, so updates
+# to this file reach you without merge conflicts.
+#
+# Regexes are case-insensitive. Single-quoted YAML strings keep backslashes literal.
+# Quote words like 'Yes', 'No', 'On', 'Off' in lists, or YAML reads them as true/false.
+
+portal:
+  base_url: https://app.kalvium.community
+  livebooks_path: /livebooks?semester={semester}
+  semester: 5
+
+# Which kinds of work to complete. `--only quiz,written` overrides this for one run.
+tasks:
+  quiz: true                       # multiple-choice quizzes
+  written: true                    # subjective / long-answer text boxes
+  coding: true                     # code editors (with a Run -> fix -> Submit loop)
+  links: true                      # GitHub repo / live site / video link fields
+
+run:
+  dry_run: false                   # same as --dry-run: read and draft everything, submit nothing
+  limit: 0                         # same as --limit: stop after N quizzes/assignments; 0 = no limit
+  review: true                     # show written/coding/link drafts and wait for your OK before submitting
+                                   # (--auto turns this off for one run; quizzes never wait)
+  dry_run_click_start: false       # dry-run: click "Start" to preview question 1 (no answers clicked)
+  retake_on_fail: true             # retake a quiz at most once if it says failed / score below pass_fraction
+  pass_fraction: 0.6               # used only when the portal shows a score but no pass/fail text
+  expected_questions: 5
+  max_questions_per_quiz: 12       # safety stop
+  trust_list_completion: true      # skip LUs the Learning Path shows as complete without opening them
+  snapshot_quiz_pages: true        # save HTML+PNG of question 1 and the result screen of every quiz
+  login_timeout_minutes: 10
+
+llm:
+  provider: gemini                 # gemini | claude  (switching needs only this line + the key)
+  models:
+    gemini: gemini-3.5-flash
+    claude: claude-opus-5-5
+  fallback_models:                 # tried in order if the model id is not available (HTTP 404)
+    gemini: [gemini-flash-latest, gemini-2.5-flash]
+    claude: []
+  api_key_env:                     # keys are read from these environment variables (or .env) only
+    gemini: GEMINI_API_KEY
+    claude: ANTHROPIC_API_KEY
+  effort:                          # Claude only: low | medium | high | xhigh | max ("" = model default)
+    quiz: medium
+    written: high
+    coding: high
+  refusal_fallback: true           # Claude only: if a request is declined, let the API retry it on a fallback model
+  temperature: ""                  # Gemini only, quiz answers ("" = model default, recommended for Gemini 3)
+  max_output_tokens: 8192          # quiz answers (includes Gemini's internal thinking)
+  max_output_tokens_long: 32000    # written answers, code and projects
+  include_lu_content: true         # give the model the LU's reading material as context (better answers)
+  max_context_chars: 24000
+  min_seconds_between_calls: 0     # raise to ~6 if the Gemini free tier rate-limits you
+  transient_retry_delays: [5, 15, 30, 60]   # seconds, for 429 / 5xx
+
+written:
+  style: >-
+    Write as a thoughtful college student, in clear and natural first-person English.
+    Be specific and concrete, use examples from the course material where they fit,
+    and avoid filler, buzzwords and generic conclusions.
+  default_words: [120, 250]        # used when the task states no word limit
+  short_answer_max_chars: 200      # single-line answer boxes
+
+coding:
+  run_tests: true                  # click Run/Test before Submit when the editor has such a button
+  max_fix_rounds: 2                # re-ask the model with the test output when tests fail
+
+links:
+  file: submissions.yaml           # your GitHub / live / video links per LU (see submissions.example.yaml)
+  wait_for_live_site_s: 90         # wait for a new GitHub Pages site to come up before submitting it (0 = don't)
+
+github:                            # creates a repo for "submit your GitHub repository" tasks
+  auto_create: true                # only when the token below is set; you review the files first unless --auto
+  token_env: GITHUB_TOKEN
+  api_url: https://api.github.com
+  private: false                   # mentors must be able to open the link
+  repo_prefix: ""                  # e.g. "kalvium-"
+  enable_pages: true               # publish plain HTML/CSS/JS projects on GitHub Pages and use that as the live link
+
+delays:
+  action_min_s: 1.0                # random pause between actions
+  action_max_s: 2.0
+
+timeouts:                          # milliseconds
+  action_ms: 15000
+  navigation_ms: 45000
+  settle_ms: 6000                  # wait for network idle after a navigation
+  list_ms: 20000                   # wait for livebook cards / LU rows to render
+  lu_settle_ms: 10000              # wait for an LU's quiz or assignment to render
+  question_change_ms: 20000        # wait for the next question after clicking Next
+  result_ms: 30000                 # wait for the result screen after Submit
+  task_ms: 20000                   # wait for confirmation after submitting an assignment
+  run_output_ms: 30000             # wait for test output after clicking Run
+
+browser:
+  channel: chrome                  # use installed Google Chrome
+  executable_path: ""              # set to use a specific browser binary instead of the channel
+  headless: false
+  slow_mo_ms: 0
+  chrome_path: ""                  # for `kalbot login`; auto-detected on Windows/macOS/Linux when empty
+
+paths:                             # relative to the project folder
+  profile: browser_profile         # dedicated Chrome profile; keeps you logged in between runs
+  runs: runs                       # one folder per run: log, CSV, HTML report, snapshots, drafts
+  state: runs/state.json           # remembers repos created per LU, so re-runs reuse them
+
+# Leave a selector "" to use the built-in heuristics (roles, visible text, structure).
+# `kalbot discover` fills empty ones with stable selectors it verified on the live page.
+selectors:
+  livebook_card: ""
+  livebook_href_regex: '/livebooks/(\d+)(?:[/?#]|$)'
+  learning_path_tab: Learning Path           # visible text of the tab
+  module_toggle: ""
+  module_regex: '^\s*(module|unit|week|chapter|section|part)\b|^\s*\d{1,2}(\s|[.:)\-]\s?)\D'
+  lu_row: ""
+  lu_number_regex: '^\s*(?:LU\s*)?(\d{1,2}\.\d{1,2})(?![\d.])'
+  quiz_option: ""
+  quiz_question: ""
+  task_field: ""                   # answer boxes / editors / link inputs of an assignment
+
+texts:                             # exact visible button texts (case/arrows/icons ignored)
+  start: [Start Quiz, Start the Quiz, Start, Begin Quiz, Begin, Take Quiz, Take the Quiz,
+          Attempt Quiz, Attempt, Attempt Now, Start Assessment, Start Now, Start Assignment,
+          Attempt Assignment, Start Task, Solve, Solve Now, Start Coding]
+  next: [Next, Next Question, Save & Next, Save and Next]
+  submit: [Submit, Submit Quiz, Submit Answers, Submit Answer, Submit Assessment, Finish, Finish Quiz]
+  confirm: [Submit, 'Yes', 'Yes, Submit', Yes Submit, Confirm, Submit Quiz, 'OK', Submit Anyway]
+  retake: [Retake, Retake Quiz, Try Again, Reattempt, Re-attempt, Attempt Again]
+  previous: [Previous, Prev, Back, Previous Question]
+  # in-page tabs that may hide the quiz or assignment (clicking a tab only shows content)
+  tabs: [Quiz, Quizzes, Assessment, MCQ, Knowledge Check, Test Yourself, Practice Quiz,
+         Assignment, Assignments, Task, Exercise, Challenge, Activity, Problem, Coding Exercise]
+  task_submit: [Submit, Submit Assignment, Submit Answer, Submit Answers, Submit Task, Submit Code,
+                Submit Solution, Submit Project, Submit Link, Submit Links, Submit Response,
+                Turn In, Hand In, Save & Submit, Save and Submit, Final Submit]
+  run: [Run, Run Code, Run Tests, Run Test Cases, Test, Test Code, Execute, Compile & Run,
+        Compile and Run, Check, Check Code]
+
+patterns:
+  login_url: ['/login', '/signin', '/sign-in', '/auth', 'accounts.google.com', '/sso']
+  # Learning Path row -> complete? Checked against row text + icon labels/classes.
+  lu_completed:
+    - '\bcompleted?\b'
+    - '\bdone\b'
+    - '\bsubmitted\b'
+    - 'check[-_ ]?(circle|mark)|circle[-_ ]?check|\btick\b'
+    - '(?<![\d.])100\s*%'
+    - 'progress=100\b'
+  lu_not_completed:                # overrides lu_completed
+    - '\bincomplete\b'
+    - 'not[-_ ]?(yet[-_ ])?(completed?|started|submitted|done)'
+    - 'in[-_ ]?progress'
+    - '\bpending\b'
+    - 'mark (as )?(complete|done)'
+    - '\blocked\b'
+  # Learning Path row -> task type hint
+  lu_quiz: ['\bquiz(zes)?\b', '\bmcqs?\b', 'multiple[- ]choice', '\bassessment\b']
+  lu_coding: ['\bcoding\b', 'code challenge', '\bprogramming\b', '\bgithub\b', '\brepl\b']
+  lu_written: ['\bwritten\b', '\bessay\b', '\breflection\b', 'write[- ]?up', '\bassignment\b']
+  # LU page -> quiz already submitted
+  quiz_completed:
+    - 'already (been )?(submitted|attempted|completed)'
+    - 'you (have )?(already )?(scored|secured|got) \d'
+    - 'your score( is)?\s*[:\-]?\s*\d'
+    - '\b(quiz|assessment|test) (completed|submitted)\b'
+    - 'submitted on\b'
+    - 'attempted on\b'
+    - 'view (your )?(result|results|submission|answers)\b'
+  # option groups near these words are feedback widgets, not quiz questions
+  quiz_exclude: ['rate (this|the)', 'how (was|would you rate|helpful|useful|satisfied)', '\bfeedback\b', '\brating\b']
+  multi_select: ['select all', 'choose all', 'all that apply', 'more than one', 'multiple (correct )?(answers|options)', '(select|choose) (any )?(two|three|2|3)\b']
+  # result screen (only text that appeared after Submit is checked)
+  result_fail: ['\bfailed\b', 'did not pass', 'not passed', 'try again', 'better luck', '\bunsuccessful\b']
+  result_pass: ['\bpassed\b', 'congratulations', 'well done', 'great job', 'nicely done']
+  # answer boxes whose label/placeholder matches these are never filled (comments, search, chat)
+  task_exclude: ['\bcomments?\b', '\bdiscussion\b', '\bdoubts?\b', '\bsearch\b', '\breply\b', '\bchat\b',
+                 '\bmessage\b', 'ask (a |your )?question', '\bpost\b']
+  # assignment already handed in (page text)
+  task_done: ['\bre-?submit\b', '(edit|update|view) (your )?submission', 'submission (received|successful|recorded|saved)',
+              '(successfully|already) submitted', 'you have submitted', 'submitted on\b', 'under review']
+  # text that appears after Submit
+  task_success: ['\bsubmitted\b', '\bsuccess', 'thank you', '\breceived\b', '\bsaved\b', 'well done', 'great job']
+  task_error: ['\brequired\b', '\binvalid\b', 'must (be|contain|include)', 'please (enter|provide|fill|add)', 'too (short|long)', '\bnot a valid\b']
+  # link fields: which link a box wants (label, placeholder and the text above it)
+  link_field: ['\burl\b', '\blinks?\b', 'https?://', 'github', '\brepo(sitory)?\b', '\bvideo\b', '\bloom\b', 'youtu',
+               '\bdeploy', '\bhosted\b', '\bwebsite\b', '\blive\b']
+  link_pr: ['pull request', '\bpr\b']
+  link_github: ['github', '\brepo(sitory)?\b', '\bgit\b']
+  link_video: ['\bvideo\b', '\bloom\b', 'youtu', 'vimeo', '\brecording\b', '\bscreencast\b', 'walk-?through']
+  link_live: ['\blive\b', '\bdeploy', '\bhosted\b', 'netlify', 'vercel', 'render\.com', 'github\.io', 'github pages', '\bwebsite\b',
+              '\bsite\b', '\bdemo (link|url)\b', '\bapp (link|url)\b', '\bweb ?app\b']
+  # coding: Run/Test output
+  run_pass: ['all (the )?(test ?cases|tests) passed', '\baccepted\b', '\bsuccess(ful)?\b', '\ball passed\b']
+  run_fail: ['\bfailed\b', '\berror\b', 'wrong answer', '\bexception\b', 'traceback', 'expected', 'time limit', 'did not pass']

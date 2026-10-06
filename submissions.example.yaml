@@ -1,0 +1,19 @@
+# Copy this file to submissions.yaml. kalbot pastes these links into link fields.
+#
+# kalbot never makes up a link. If an assignment asks for a link that isn't here
+# (and isn't a repo kalbot created for you), it submits nothing for that
+# assignment and lists it under "Needs you".
+#
+#   livebook:  part of the livebook name (optional, case-insensitive)
+#   lu:        the LU number in quotes ("2.3"), or part of the LU title
+#   github:    repository URL               pr:     pull request URL
+#   live:      deployed site URL            video:  Loom / YouTube / Drive video URL
+#   link:      any other link the LU asks for
+
+- livebook: Web Development
+  lu: "1.4"
+  video: https://www.loom.com/share/your-video-id
+
+- lu: Portfolio
+  github: https://github.com/your-name/portfolio
+  live: https://your-name.github.io/portfolio/

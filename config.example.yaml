@@ -1,0 +1,27 @@
+# Copy this file to config.yaml and keep only what you change.
+# Every setting, with its default and an explanation, is in kalbot/defaults.yaml.
+
+portal:
+  semester: 5
+
+llm:
+  provider: gemini            # or: claude  (then set ANTHROPIC_API_KEY in .env)
+
+# Turn kinds of work off for good (or choose per run with --only quiz,written,coding,links):
+# tasks:
+#   coding: false
+
+# Stop asking you to review written/coding/link drafts (same as passing --auto every time):
+# run:
+#   review: false
+
+# How written answers should sound:
+# written:
+#   style: >-
+#     Write in simple, direct English, like a second-year engineering student.
+#     Use one concrete example from the course material.
+
+# Repos kalbot creates for "submit your GitHub link" tasks:
+# github:
+#   repo_prefix: "kalvium-"
+#   private: false

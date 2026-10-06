@@ -1,0 +1,31 @@
+name: Bug report
+description: Something on the portal wasn't recognised, or kalbot did the wrong thing
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste API keys, tokens, your `.env`, or anything from `browser_profile/`.**
+        Snapshots, drafts and reports contain portal content and your answers; share only what you are comfortable sharing.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: The command you ran, what you expected, and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Console output or an excerpt of runs/<timestamp>/run.log
+      render: text
+  - type: textarea
+    id: page
+    attributes:
+      label: The page kalbot got stuck on
+      description: The relevant part of the discovery report or snapshot HTML (remove personal details), or a screenshot.
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: Output of `kalbot --version`, your OS, and llm.provider

@@ -5,7 +5,12 @@ plausible UI patterns on purpose so the bot's heuristics get exercised:
 native radios/checkboxes, ARIA radios, plain clickable <div> options, a quiz in
 an iframe, a quiz behind an in-page tab, a Start screen, a confirm modal, a
 feedback star-rating widget, a sidebar with other LUs' statuses, already
-submitted quizzes, written/coding/reading LUs, and collapsible modules.
+submitted quizzes, collapsible modules, and assignments: textareas, rich-text
+boxes, a CodeMirror-style editor with Run Tests, a plain-textarea code box
+behind "Start Assignment", link fields, a short answer, and a comment box on
+every LU page that must never be touched.
+
+Run it on its own to look around:  python tests/mock_portal.py
 """
 
 from __future__ import annotations
@@ -64,7 +69,44 @@ QUIZZES = {
     ("2506", "13"): [Q(f"Stack question {i}?", ["A", "B", "C", "D"], [0]) for i in range(1, 6)],
 }
 
-# kind: quiz variant or task type; start: quiz has a Start screen; tab: quiz behind an in-page tab
+FIZZ_STARTER = "def fizzbuzz(n):\n    # return a list of strings for 1..n\n    pass\n"
+
+
+def F(name, type, question="", label="", placeholder="", value=""):
+    return {"name": name, "type": type, "question": question, "label": label, "placeholder": placeholder,
+            "value": value}
+
+
+# Assignments. fields: name, widget type, the question above it, its label/placeholder.
+TASKS = {
+    ("2505", "13"): {"fields": [F("answer", "textarea", "Reflect on what 'know thyself' means for you as a "
+                                  "learner. Write your answer (minimum 200 words).", placeholder="Type your answer")]},
+    ("2505", "22"): {"fields": [
+        F("repo", "url", "Build a small script that flags unethical data use.", "GitHub repository link",
+          "https://github.com/you/repo"),
+        F("video", "url", "", "Video walkthrough (Loom or YouTube)", "https://www.loom.com/share/..."),
+    ]},
+    ("2507", "11"): {"confirm": True, "fields": [
+        F("q1", "rich", "1. What did you learn about semantic HTML this week? (50-80 words)", "Answer 1"),
+        F("q2", "plain_rich", "2. Name one accessibility habit you will keep. Answer in about 40 words.", "Answer 2"),
+    ]},
+    ("2507", "12"): {"run": True, "fields": [
+        F("code", "cm5", "Write fizzbuzz(n) returning a list of strings for 1..n: 'Fizz' for multiples of 3, "
+          "'Buzz' for multiples of 5, 'FizzBuzz' for both, else the number.", value=FIZZ_STARTER)]},
+    ("2507", "13"): {"start": True, "fields": [
+        F("code", "code_textarea", "Write a function add(a, b) that returns the sum of two numbers.",
+          value="def add(a, b):\n    ...\n")]},
+    ("2507", "14"): {"fields": [
+        F("repo", "url", "Build a personal portfolio website (HTML/CSS/JS) with an About and a Projects section.",
+          "GitHub repository link", "https://github.com/..."),
+        F("live", "url", "", "Deployed website link", "https://..."),
+        F("video", "url", "", "Video walkthrough link (Loom/YouTube)", "https://..."),
+    ]},
+    ("2507", "15"): {"fields": [F("short", "text", "", "What does HTML stand for?")]},
+    ("2507", "16"): {"fields": [F("video", "url", "Record a 2-minute demo of your portfolio.", "Demo video link")]},
+}
+
+# kind: quiz variant or task type; start: has a Start screen; tab: quiz behind an in-page tab
 LUS = {
     "2505": {
         "name": "Introduction to Philosophy",
@@ -73,11 +115,11 @@ LUS = {
             ("Module 1: Foundations", True, [
                 ("11", "1.1", "What is Philosophy?", {"kind": "native", "start": True}),
                 ("12", "1.2", "The Socratic Method", {"kind": "native", "start": True}),
-                ("13", "1.3", "Reflection: Know Thyself", {"kind": "written"}),
+                ("13", "1.3", "Reflection: Know Thyself", {"kind": "task"}),
             ]),
             ("Module 2: Ethics", False, [
                 ("21", "2.1", "Virtue Ethics", {"kind": "aria", "start": False}),
-                ("22", "2.2", "Ethics in Code", {"kind": "coding"}),
+                ("22", "2.2", "Ethics in Code", {"kind": "task"}),
                 ("23", "2.3", "Utilitarianism", {"kind": "div", "start": False, "tab": True}),
                 ("24", "2.4", "Reading: Kant", {"kind": "reading"}),
             ]),
@@ -91,6 +133,20 @@ LUS = {
                 ("11", "1.1", "Arrays", {"kind": "native", "start": True, "iframe": True}),
                 ("12", "1.2", "Linked Lists", {"kind": "native", "start": True}),
                 ("13", "1.3", "Stacks", {"kind": "native", "start": True}),
+            ]),
+        ],
+    },
+    "2507": {
+        "name": "Web Development",
+        "rows": "div",
+        "modules": [
+            ("Module 1: Building for the web", True, [
+                ("11", "1.1", "Learning Journal", {"kind": "task"}),
+                ("12", "1.2", "FizzBuzz", {"kind": "task"}),
+                ("13", "1.3", "Sum of Two Numbers", {"kind": "task"}),
+                ("14", "1.4", "Portfolio Website", {"kind": "task"}),
+                ("15", "1.5", "HTML Basics", {"kind": "task"}),
+                ("16", "1.6", "Demo Day", {"kind": "task"}),
             ]),
         ],
     },
@@ -109,6 +165,9 @@ main{flex:1;padding:16px} .card{border:1px solid #ccc;padding:12px;margin:8px;di
 .pill{display:inline-block;width:22px;text-align:center;border:1px solid #888;margin:2px;cursor:pointer}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center}
 .modal-box{background:#fff;padding:20px} .hidden{display:none} pre{background:#f4f4f4;padding:8px}
+.rich{min-height:60px;border:1px solid #999;padding:6px} .CodeMirror{border:1px solid #999;min-height:90px}
+.CodeMirror-code{font-family:monospace;white-space:pre;padding:6px} .code-input{font-family:monospace}
+.comments{margin-top:30px;border-top:1px solid #ccc}
 """
 
 QUIZ_ENGINE = r"""
@@ -191,6 +250,66 @@ setTimeout(render, 500);
 })();
 """
 
+# Wires up assignment forms: a CodeMirror-5-like editor API, Run Tests, an
+# optional confirm modal, "required" validation, and the submitted state.
+TASK_ENGINE = r"""
+(function(){
+const T = window.TASK;
+document.querySelectorAll('[data-cm]').forEach(el => {
+  const view = el.querySelector('.CodeMirror-code'); let val = el.dataset.value || '';
+  const render = () => { view.textContent = val; };
+  el.CodeMirror = { getValue: () => val, setValue: (v) => { val = v; render(); },
+                    getOption: (k) => k === 'mode' ? 'python' : k === 'readOnly' ? el.getAttribute('aria-readonly') === 'true' : null };
+  render();
+});
+const form = document.querySelector('[data-task-form]'); if (!form) return;
+const status = form.querySelector('.status'); const out = form.querySelector('.output');
+const valueOf = (el) => el.CodeMirror ? el.CodeMirror.getValue() : (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') ? el.value : el.innerText;
+const values = () => { const v = {}; form.querySelectorAll('[data-task-field]').forEach(el => v[el.dataset.taskField] = valueOf(el)); return v; };
+const run = form.querySelector('[data-task-run]');
+if (run) run.onclick = () => {
+  out.textContent = 'Running...';
+  fetch('/api/run', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lb: T.lb, lu: T.lu, code: values().code})}).then(r => r.json()).then(r => { setTimeout(() => { out.textContent = r.output; }, 300); });
+};
+function send() {
+  status.textContent = 'Submitting...';
+  fetch('/api/task', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lb: T.lb, lu: T.lu, fields: values()})}).then(r => r.json()).then(() => {
+      form.querySelectorAll('[data-task-field]').forEach(el => { el.disabled = true; el.readOnly = true;
+        if (el.isContentEditable) el.setAttribute('contenteditable', 'false'); el.setAttribute('aria-readonly', 'true'); });
+      form.querySelector('[data-task-submit]').remove();
+      setTimeout(() => { status.textContent = 'Submission received. Your mentor will review it.'; }, 300);
+  });
+}
+form.querySelector('[data-task-submit]').onclick = () => {
+  const empty = Object.entries(values()).filter(([k, v]) => !String(v).trim());
+  if (empty.length) { status.textContent = 'This field is required: ' + empty[0][0]; return; }
+  if (!T.confirm) return send();
+  const m = document.createElement('div');
+  m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.className = 'modal';
+  m.innerHTML = '<div class="modal-box"><p>Submit your assignment? You cannot edit it afterwards.</p><button class="btn" id="no">Cancel</button><button class="btn" id="ok">Confirm</button></div>';
+  document.body.appendChild(m);
+  m.querySelector('#no').onclick = () => m.remove();
+  m.querySelector('#ok').onclick = () => { m.remove(); send(); };
+};
+const start = document.querySelector('[data-task-start]');
+if (start) start.onclick = () => { start.parentElement.remove(); form.classList.remove('hidden'); };
+})();
+"""
+
+COMMENTS = ('<section class="comments"><h4>Discussion</h4><p>Ask doubts or share thoughts with your batch.</p>'
+            '<textarea rows="3" cols="60" placeholder="Add a comment..."></textarea><br>'
+            '<button class="btn">Post</button></section>')
+
+
+def judge(code: str) -> tuple[int, str]:
+    tests = [("fizzbuzz(3)[-1] == 'Fizz'", "Fizz" in code), ("fizzbuzz(5)[-1] == 'Buzz'", "Buzz" in code),
+             ("fizzbuzz(15)[-1] == 'FizzBuzz'", "% 15" in code or "FizzBuzz" in code)]
+    lines = [f"Test {i}: {'passed' if ok else 'failed - ' + name}" for i, (name, ok) in enumerate(tests, 1)]
+    passed = sum(ok for _, ok in tests)
+    return passed, "\n".join(lines + [f"{passed}/{len(tests)} test cases passed"])
+
 
 class Portal:
     def __init__(self):
@@ -204,11 +323,15 @@ class Portal:
             self.submissions[("2505", "11")] = [{"answers": None, "score": 5}]
             self.submissions[("2506", "12")] = [{"answers": None, "score": 4}]
             self.submissions[("2506", "13")] = [{"answers": None, "score": 5}]
+            self.tasks: dict = {}    # (lb, lu) -> submitted fields
+            self.runs: list = []     # code sent to Run Tests
 
     def lu_done(self, lb, lu) -> bool:
         info = self.lu_info(lb, lu)
         if lb == "2506" and lu == "12":
             return False   # quiz submitted but the LU still has other work
+        if info["kind"] == "task":
+            return (lb, lu) in self.tasks
         return info["kind"] in ("native", "aria", "div") and bool(self.submissions.get((lb, lu)))
 
     def lu_info(self, lb, lu):
@@ -220,10 +343,16 @@ class Portal:
 
     def submit(self, lb, lu, answers):
         qs = QUIZZES[(lb, lu)]
-        score = sum(1 for q, a in zip(qs, answers) if sorted(a) == sorted(q["answer"]))
+        score = sum(1 for q, a in zip(qs, answers, strict=False) if sorted(a) == sorted(q["answer"]))
         with self.lock:
             self.submissions.setdefault((lb, lu), []).append({"answers": answers, "score": score})
         return {"score": score, "total": len(qs), "passed": score / len(qs) >= 0.6}
+
+    def state(self) -> dict:
+        s = {f"{k[0]}/{k[1]}": v for k, v in self.submissions.items()}
+        s["tasks"] = {f"{k[0]}/{k[1]}": v for k, v in self.tasks.items()}
+        s["runs"] = list(self.runs)
+        return s
 
 
 def page(title, body, head=""):
@@ -233,7 +362,34 @@ def page(title, body, head=""):
 
 def header():
     return ('<header><nav><a href="/livebooks?semester=5">Livebooks</a><a href="/quizzes">Quiz</a>'
-            '<a href="/profile">Profile</a></nav></header>')
+            '<a href="/profile">Profile</a><input type="text" placeholder="Search"></nav></header>')
+
+
+def task_field(f: dict, locked: dict | None) -> str:
+    e = html.escape
+    val = (locked or {}).get(f["name"], f["value"])
+    dis = " disabled" if locked else ""
+    q = f'<p>{e(f["question"])}</p>' if f["question"] else ""
+    attrs = f'data-task-field="{f["name"]}"'
+    t = f["type"]
+    if t == "textarea":
+        return f'<div class="q">{q}<textarea {attrs} rows="6" cols="70" placeholder="{e(f["placeholder"])}"{dis}>{e(val)}</textarea></div>'
+    if t in ("rich", "plain_rich"):
+        cls = "ProseMirror rich" if t == "rich" else "rich"
+        ce = "false" if locked else "true"
+        return (f'<div class="q">{q}<div class="{cls}" contenteditable="{ce}" role="textbox" aria-multiline="true" '
+                f'aria-label="{e(f["label"])}" {attrs}>{e(val)}</div></div>')
+    if t == "cm5":
+        ro = ' aria-readonly="true"' if locked else ""
+        return (f'<div class="q">{q}<label>Language <select><option selected>Python 3</option><option>JavaScript</option>'
+                f'</select></label><div class="CodeMirror" data-cm data-value="{e(val)}" {attrs}{ro}>'
+                '<div class="CodeMirror-code"></div></div></div>')
+    if t == "code_textarea":
+        return f'<div class="q">{q}<textarea class="code-input" name="code" rows="6" cols="60" {attrs}{dis}>{e(val)}</textarea></div>'
+    typ = "url" if t == "url" else "text"
+    fid = f'f_{f["name"]}'
+    return (f'<div class="q">{q}<label for="{fid}">{e(f["label"])}</label><br><input id="{fid}" type="{typ}" '
+            f'size="60" placeholder="{e(f["placeholder"])}" value="{e(val)}" {attrs}{dis}></div>')
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -260,14 +416,22 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(n) or b"{}")
-        if u.path == "/api/submit":
-            if not self._authed():
-                return self._send(401, "{}", "application/json")
-            res = self.portal.submit(body["lb"], body["lu"], body["answers"])
-            return self._send(200, json.dumps(res), "application/json")
         if u.path == "/api/reset":
             self.portal.reset()
             return self._send(200, "{}", "application/json")
+        if not self._authed():
+            return self._send(401, "{}", "application/json")
+        if u.path == "/api/submit":
+            res = self.portal.submit(body["lb"], body["lu"], body["answers"])
+            return self._send(200, json.dumps(res), "application/json")
+        if u.path == "/api/task":
+            with self.portal.lock:
+                self.portal.tasks[(body["lb"], body["lu"])] = body["fields"]
+            return self._send(200, '{"ok": true}', "application/json")
+        if u.path == "/api/run":
+            passed, output = judge(body.get("code") or "")
+            self.portal.runs.append({"lu": f'{body["lb"]}/{body["lu"]}', "passed": passed})
+            return self._send(200, json.dumps({"output": output}), "application/json")
         self._send(404, "not found")
 
     def do_GET(self):
@@ -281,8 +445,7 @@ function go(){document.cookie='kqb_session=1; path=/; max-age=86400'; location.h
 document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" logs in after 2.5 s
 </script></main>"""))
         if u.path == "/api/state":
-            s = {f"{k[0]}/{k[1]}": v for k, v in self.portal.submissions.items()}
-            return self._send(200, json.dumps(s), "application/json")
+            return self._send(200, json.dumps(self.portal.state()), "application/json")
         if not self._authed():
             return self._send(302, "", extra={"Location": "/login"})
         if parts == ["livebooks"]:
@@ -313,7 +476,7 @@ document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" lo
         mods = ""
         for title, expanded, rows in d["modules"]:
             items = ""
-            for luid, num, t, info in rows:
+            for luid, num, t, _info in rows:
                 done = self.portal.lu_done(lb, luid)
                 if d["rows"] == "div":
                     icon = ('<svg class="lucide lucide-check-circle" aria-label="Completed" width="12" height="12"></svg>'
@@ -353,6 +516,23 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
                  f'<script>{QUIZ_ENGINE}</script>')
         return page("Quiz", f"<main>{block}</main>") if standalone else block
 
+    def task_doc(self, lb, lu):
+        spec = TASKS[(lb, lu)]
+        locked = self.portal.tasks.get((lb, lu))
+        fields = "".join(task_field(f, locked) for f in spec["fields"])
+        if locked:
+            actions = '<p class="status">Submitted on 06 Oct 2026. View your submission above.</p>'
+        else:
+            run = '<button class="btn" data-task-run>Run Tests</button>' if spec.get("run") else ""
+            actions = (f'<div class="actions">{run}<button class="btn" data-task-submit>Submit Assignment</button></div>'
+                       '<pre class="output"></pre><p class="status"></p>')
+        hidden = " hidden" if spec.get("start") and not locked else ""
+        start = ('<div class="intro"><p>This assignment is timed once you start.</p>'
+                 '<button class="btn" data-task-start>Start Assignment</button></div>') if hidden else ""
+        data = {"lb": lb, "lu": lu, "confirm": bool(spec.get("confirm"))}
+        return (f'{start}<div class="assignment{hidden}" data-task-form><h3>Assignment</h3>{fields}{actions}</div>'
+                f'<script>window.TASK={json.dumps(data)};</script><script>{TASK_ENGINE}</script>')
+
     def lu_page(self, lb, lu):
         info = self.portal.lu_info(lb, lu)
         side = "".join(
@@ -376,16 +556,11 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
                            '<script>document.getElementById("tq").onclick=()=>{document.getElementById("quizpane").classList.remove("hidden");'
                            'document.getElementById("content").classList.add("hidden");};</script>')
                 task = ""
-        elif kind == "written":
-            task = ('<div class="task"><h3>Written task</h3><p>Write your answer (minimum 200 words).</p>'
-                    '<textarea rows="6" cols="60"></textarea><br><button class="btn">Submit</button></div>')
-        elif kind == "coding":
-            task = ('<div class="task"><h3>Coding task</h3><p>Submit your GitHub repository link.</p>'
-                    '<input type="url" placeholder="https://github.com/you/repo"><div class="monaco-editor" '
-                    'style="height:80px;border:1px solid #999">print("hello")</div><button class="btn">Submit</button></div>')
+        elif kind == "task":
+            task = self.task_doc(lb, lu)
         else:
             task = '<button class="btn">Mark as complete</button>'
-        body = f'{header()}<div class="wrap"><aside>{side}</aside><main>{reading}<div id="task">{task}</div></main></div>'
+        body = f'{header()}<div class="wrap"><aside>{side}</aside><main>{reading}<div id="task">{task}</div>{COMMENTS}</main></div>'
         return page(info["title"], body)
 
 

@@ -1,9 +1,10 @@
 // DOM helpers injected into portal pages (all frames).
-// They only read the page. The one thing they write is data-kqb-* marker
-// attributes, so Python can click exactly the element that was analysed and
-// never has to guess.
+// They read the page and mark what they identified with data-kqb-* attributes,
+// so Python clicks and types into exactly the element that was analysed and
+// never has to guess. The only page writes are setEditor()/paste(), which
+// Python calls to put an approved answer into a code or rich-text editor.
 (() => {
-  const VERSION = 1;
+  const VERSION = 2;
   if (window.__kqb && window.__kqb.version === VERSION) return;
 
   const K = { version: VERSION, items: [], root: null };
@@ -336,6 +337,7 @@
     }
     return t;
   }
+  K.mainText = () => mainText();
 
   K.state = (cfg) => {
     clearMarks('data-kqb-opt');
@@ -621,19 +623,6 @@
     return out;
   };
 
-  K.luFeatures = (cfg) => {
-    const text = norm(document.body ? document.body.innerText : '');
-    const editors = [...document.querySelectorAll('.monaco-editor, .cm-editor, .CodeMirror, .ace_editor')]
-      .filter((e) => visible(e) && !(e.getAttribute('aria-readonly') === 'true')).length;
-    const writers = [...document.querySelectorAll('textarea, [contenteditable="true"], .ProseMirror, .ql-editor')]
-      .filter(visible).length;
-    return {
-      coding: editors > 0 || any(res(cfg.coding), text),
-      written: writers > 0 || any(res(cfg.written), text),
-      editors, writers, chars: text.length,
-    };
-  };
-
   // Scroll every scrollable area to the bottom (lazy-loaded quiz sections).
   K.scrollAll = () => {
     const els = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => {
@@ -660,6 +649,298 @@
   };
 
   K.clickedMark = (sel) => { const el = document.querySelector(sel); if (el) el.setAttribute('data-kqb-clicked', '1'); };
+
+  // ------------------------------------------------------------------ assignments (written / coding / links)
+  const EDITOR_SEL = '.monaco-editor, .cm-editor, .CodeMirror, .ace_editor';
+  const EDITABLE = '[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]';
+  const RICH_SEL = `.ProseMirror, .ql-editor, ${EDITABLE}`;
+  const OUTSIDE = 'nav, header, footer, aside, [role="navigation"], [role="complementary"], [role="banner"], [role="search"]';
+  const LANGS = /^(python\s*3?|java|javascript|js|node(\.?js)?|typescript|ts|c\+\+|cpp|c|c#|csharp|go|golang|rust|ruby|php|kotlin|swift|sql|mysql|postgresql|html|css|bash|shell|r|scala|dart)(\s*\(?[\d.]+\)?)?$/i;
+  const editorKind = (el) => (el.matches('.monaco-editor') ? 'monaco' : el.matches('.cm-editor') ? 'cm6'
+    : el.matches('.CodeMirror') ? 'cm5' : el.matches('.ace_editor') ? 'ace' : '');
+
+  // The editor's own API when the page exposes it (exact, no auto-indent surprises).
+  function editorApi(el) {
+    const kind = el && editorKind(el);
+    try {
+      if (kind === 'monaco' && window.monaco && window.monaco.editor && window.monaco.editor.getEditors) {
+        const e = window.monaco.editor.getEditors().find((x) => {
+          const d = x.getDomNode && x.getDomNode();
+          return d && (d === el || el.contains(d) || d.contains(el));
+        });
+        const m = e && e.getModel();
+        if (e) return { get: () => e.getValue(), set: (v) => e.setValue(v), lang: (m && m.getLanguageId && m.getLanguageId()) || '' };
+      }
+      if (kind === 'cm5' && el.CodeMirror) {
+        const cm = el.CodeMirror;
+        const mode = cm.getOption && cm.getOption('mode');
+        return {
+          get: () => cm.getValue(), set: (v) => cm.setValue(v),
+          lang: String((mode && mode.name) || mode || ''), readOnly: !!(cm.getOption && cm.getOption('readOnly')),
+        };
+      }
+      if (kind === 'cm6') {
+        const c = el.querySelector('.cm-content');
+        const view = c && c.cmView && (c.cmView.view || (c.cmView.rootView && c.cmView.rootView.view));
+        if (view && view.state && view.dispatch) {
+          return {
+            get: () => view.state.doc.toString(),
+            set: (v) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } }),
+            lang: c.getAttribute('data-language') || '',
+          };
+        }
+      }
+      if (kind === 'ace' && el.env && el.env.editor) {
+        const e = el.env.editor;
+        return {
+          get: () => e.getValue(), set: (v) => e.setValue(v, 1),
+          lang: ((e.session && e.session.$modeId) || '').split('/').pop(), readOnly: !!(e.getReadOnly && e.getReadOnly()),
+        };
+      }
+    } catch (err) { /* fall back to the keyboard */ }
+    return null;
+  }
+
+  function valueOf(el) {
+    if (!el || !el.isConnected) return null;
+    const api = el.matches(EDITOR_SEL) ? editorApi(el) : null;
+    if (api) return api.get();
+    if (el.matches('textarea, input')) return el.value;
+    if (el.matches(EDITOR_SEL)) {   // virtualised editors only render visible lines
+      const t = el.querySelector('.view-lines, .cm-content, .CodeMirror-code, .ace_text-layer');
+      return ((t || el).innerText || '').replace(/ /g, ' ');
+    }
+    return el.innerText || '';
+  }
+
+  function labelOf(el) {
+    const bits = [];
+    if (el.labels) for (const l of el.labels) bits.push(textOf(l));
+    const id = el.getAttribute('id');
+    if (!bits.length && id) {
+      const l = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      if (l) bits.push(textOf(l));
+    }
+    const wrap = el.closest('label');
+    if (wrap) bits.push(textOf(wrap));
+    for (const at of ['aria-label', 'placeholder', 'title', 'name', 'data-placeholder']) {
+      const v = el.getAttribute(at);
+      if (v) bits.push(v);
+    }
+    const ph = el.querySelector && el.querySelector('[data-placeholder]');
+    if (ph) bits.push(ph.getAttribute('data-placeholder'));
+    for (const i of (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)) {
+      const n = document.getElementById(i);
+      if (n) bits.push(textOf(n));
+    }
+    return norm([...new Set(bits.map(norm).filter(Boolean))].join(' | ')).slice(0, 300);
+  }
+
+  // Text right above an answer box (its question), stopping at the previous box.
+  function promptFor(el, others) {
+    const picked = [];
+    let total = 0;
+    let cur = el;
+    for (let lvl = 0; cur && cur !== document.body && lvl < 8; lvl++) {
+      let found = false;
+      let stop = false;
+      for (let sib = cur.previousSibling; sib && !stop; sib = sib.previousSibling) {
+        if (sib.nodeType === 1) {
+          if (sib.matches('script, style, noscript, template') || !visible(sib)) continue;
+          if (others.some((o) => o !== el && sib.contains(o))) { stop = true; break; }
+        } else if (sib.nodeType !== 3) continue;
+        const t = sib.nodeType === 3 ? norm(sib.textContent) : textOf(sib);
+        if (!t) continue;
+        picked.unshift(t);
+        found = true;
+        total += t.length;
+        if (total > 2500) stop = true;
+      }
+      if (found || stop) break;
+      cur = cur.parentElement;
+      if (cur && others.some((o) => o !== el && cur.contains(o))) break;
+    }
+    return norm(picked.join('\n')).slice(0, 3000);
+  }
+
+  function languageNear(el) {
+    for (let p = el.parentElement, i = 0; p && i < 6; p = p.parentElement, i++) {
+      for (const s of p.querySelectorAll('select')) {
+        const o = s.options && s.options[s.selectedIndex];
+        if (o && LANGS.test(norm(o.textContent))) return norm(o.textContent);
+      }
+      for (const b of p.querySelectorAll('button, [role="combobox"], [role="button"]')) {
+        const t = textOf(b);
+        if (t && t.length < 24 && LANGS.test(t)) return t;
+      }
+    }
+    return '';
+  }
+
+  function isLocked(el, tag, api) {
+    if (tag === 'textarea' || tag === 'input') return el.disabled || el.readOnly || isDisabled(el);
+    if (tag === 'rich') {
+      return el.getAttribute('contenteditable') === 'false' || el.getAttribute('aria-readonly') === 'true' ||
+        el.getAttribute('aria-disabled') === 'true';
+    }
+    if (api && api.readOnly) return true;
+    return !!el.querySelector('textarea[readonly], .cm-content[contenteditable="false"]') ||
+      el.getAttribute('aria-readonly') === 'true' || /(^|\s)read-only(\s|$)/.test(cls(el));
+  }
+
+  const fieldEl = (i) => document.querySelector(`[data-kqb-field="${i}"]`);
+
+  // Every answer box / code editor / link input that belongs to an assignment.
+  // A box counts only if a Submit button follows it nearby, so comment boxes,
+  // search bars and chat widgets (with Post/Send buttons) are never touched.
+  K.tasks = (cfg) => {
+    clearMarks('data-kqb-field');
+    clearMarks('data-kqb-tsub');
+    clearMarks('data-kqb-run');
+    const exclude = res(cfg.taskExclude);
+    const blocked = (el) => !!el.closest(OUTSIDE) || !!el.closest('[data-kqb-opt]');
+    const cands = [];
+    const add = (el, tag) => { if (!cands.some((c) => c.el === el || c.el.contains(el))) cands.push({ el, tag }); };
+    const tagOf = (el) => (el.matches(EDITOR_SEL) ? 'editor' : el.matches('textarea') ? 'textarea' : el.matches('input') ? 'input' : 'rich');
+    let custom = [];
+    if (cfg.taskFieldSelector) {
+      try { custom = [...document.querySelectorAll(cfg.taskFieldSelector)].filter(visible); } catch (e) { /* fall back */ }
+    }
+    if (custom.length) {
+      custom.forEach((el) => add(el, tagOf(el)));
+    } else {
+      for (const el of document.querySelectorAll(EDITOR_SEL)) {
+        if (visible(el) && !blocked(el) && !(el.parentElement && el.parentElement.closest(EDITOR_SEL))) add(el, 'editor');
+      }
+      for (const el of document.querySelectorAll(RICH_SEL)) {
+        if (!visible(el) || blocked(el) || el.closest(EDITOR_SEL)) continue;
+        if (el.parentElement && el.parentElement.closest(EDITABLE)) continue;   // inner node of an editor
+        add(el, 'rich');
+      }
+      for (const el of document.querySelectorAll('textarea')) {
+        if (visible(el) && !blocked(el) && !el.closest(EDITOR_SEL)) add(el, 'textarea');
+      }
+      for (const el of document.querySelectorAll('input')) {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (['text', 'url'].includes(type) && visible(el) && !blocked(el) && !el.closest(EDITOR_SEL)) add(el, 'input');
+      }
+    }
+    const submits = buttons(cfg.taskSubmit);
+    const runs = buttons(cfg.run);
+    const els = cands.map((c) => c.el);
+    const usedSubmits = [];
+    const usedRuns = [];
+    const fields = [];
+    for (const c of cands) {
+      const label = labelOf(c.el);
+      if (any(exclude, label)) continue;
+      let sb = null;
+      let sd = Infinity;
+      for (const b of submits) {
+        if (!(c.el.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+        const d = distUp(c.el, b);
+        if (d < sd) { sd = d; sb = b; }
+      }
+      if (!sb || sd > 12) continue;
+      if (!usedSubmits.includes(sb)) usedSubmits.push(sb);
+      let rb = null;
+      if (c.tag !== 'input') {
+        let rd = Infinity;
+        for (const b of runs) { const d = distUp(c.el, b); if (d < rd) { rd = d; rb = b; } }
+        if (rd > 12) rb = null;
+        if (rb && !usedRuns.includes(rb)) usedRuns.push(rb);
+      }
+      const editor = c.tag === 'editor' ? editorKind(c.el) : '';
+      const api = editor ? editorApi(c.el) : null;
+      const i = fields.length;
+      mark(c.el, 'data-kqb-field', i);
+      const langEl = c.el.matches('[data-language], [data-mode-id]') ? c.el : c.el.querySelector('[data-language], [data-mode-id]');
+      fields.push({
+        index: i,
+        tag: c.tag,
+        type: c.tag === 'input' ? (c.el.getAttribute('type') || 'text').toLowerCase() : '',
+        editor,
+        api: !!api,
+        label,
+        prompt: promptFor(c.el, els),
+        value: String(valueOf(c.el) || '').slice(0, 20000),
+        locked: !!isLocked(c.el, c.tag, api),
+        required: !!(c.el.required || c.el.getAttribute('aria-required') === 'true'),
+        maxlength: +(c.el.getAttribute('maxlength') || 0) || null,
+        mono: /mono|courier|consolas|menlo/i.test(getComputedStyle(c.el).fontFamily || ''),
+        codeHint: /\b(code|program|solution|snippet|editor)\b/i.test(
+          `${cls(c.el)} ${c.el.getAttribute('name') || ''} ${c.el.getAttribute('id') || ''}`.replace(/[-_]/g, ' ')),
+        language: (api && api.lang) || (langEl && (langEl.getAttribute('data-language') || langEl.getAttribute('data-mode-id'))) ||
+          languageNear(c.el),
+        submit: usedSubmits.indexOf(sb),
+        run: rb ? usedRuns.indexOf(rb) : -1,
+      });
+    }
+    usedSubmits.forEach((b, j) => mark(b, 'data-kqb-tsub', j));
+    usedRuns.forEach((b, j) => mark(b, 'data-kqb-run', j));
+    const info = (b, j) => ({ index: j, text: textOf(b).slice(0, 40), disabled: isDisabled(b) });
+    return {
+      fields,
+      submits: usedSubmits.map(info),
+      runs: usedRuns.map(info),
+      done: any(res(cfg.taskDone), mainText()),
+    };
+  };
+
+  K.fieldValue = (i) => valueOf(fieldEl(i));
+  K.setEditor = (i, v) => {
+    const api = editorApi(fieldEl(i));
+    if (!api) return false;
+    api.set(v);
+    return true;
+  };
+  // Mark the part of a field to click so the caret lands inside it.
+  K.focusTarget = (i) => {
+    const el = fieldEl(i);
+    if (!el) return false;
+    clearMarks('data-kqb-focus');
+    const t = el.matches(EDITOR_SEL)
+      ? (el.querySelector('.view-lines, .cm-content, .CodeMirror-code, .CodeMirror-lines, .ace_content') || el) : el;
+    mark(t, 'data-kqb-focus', '1');
+    return true;
+  };
+  // Paste text into the focused element the way editors expect (ProseMirror,
+  // Quill, Monaco, CodeMirror and Ace all read clipboardData from the event).
+  K.paste = (text) => {
+    const t = document.activeElement;
+    if (!t || t === document.body) return false;
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    t.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  };
+
+  // State after clicking an assignment's Submit: only text that is new counts.
+  K.taskResult = (cfg, before, idx) => {
+    const old = new Set(before || []);
+    const fresh = K.lines().filter((l) => !old.has(l));
+    const labels = new Set([...cfg.taskSubmit, ...cfg.run, ...cfg.confirm, ...cfg.prev].map(btnKey));
+    const said = fresh.filter((l) => !labels.has(btnKey(l)));
+    const text = said.join('\n');
+    const els = (idx || []).map(fieldEl);
+    const gone = els.filter((e) => !e || !e.isConnected || !visible(e)).length;
+    const locked = els.filter((e) => e && e.isConnected && (e.disabled || e.readOnly ||
+      e.getAttribute('contenteditable') === 'false' || e.getAttribute('aria-readonly') === 'true' ||
+      e.getAttribute('aria-disabled') === 'true')).length;
+    const sub = document.querySelector('[data-kqb-tsub][data-kqb-clicked]');
+    const m = text.match(/(\d+)\s*(?:\/|out of)\s*(\d+)/i);
+    return {
+      fresh: said.slice(0, 15),
+      message: (said.find((l) => any(res(cfg.taskSuccess), l) || any(res(cfg.taskDone), l)) || '').slice(0, 200),
+      success: any(res(cfg.taskSuccess), text),
+      done: any(res(cfg.taskDone), text),
+      error: (fresh.find((l) => any(res(cfg.taskError), l)) || '').slice(0, 200),
+      gone, locked, total: els.length,
+      submitGone: !sub || !visible(sub) || isDisabled(sub),
+      score: m && +m[1] <= +m[2] ? [+m[1], +m[2]] : null,
+    };
+  };
 
   // ------------------------------------------------------------------ discovery
   K.report = () => {
