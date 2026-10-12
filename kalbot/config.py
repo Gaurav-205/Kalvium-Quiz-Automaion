@@ -64,6 +64,30 @@ def unknown_keys(defaults: dict, user: dict, prefix: str = "") -> list[str]:
     return out
 
 
+def windows_user_env(name: str) -> str:
+    """A variable set with `setx` is only visible to terminals opened afterwards: read it from the registry."""
+    if os.name != "nt":
+        return ""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            return str(winreg.QueryValueEx(k, name)[0])
+    except OSError:
+        return ""
+
+
+def get_env(name: str, default: str = "") -> str:
+    """Read an environment variable from os.environ, falling back to the Windows user registry."""
+    val = os.environ.get(name)
+    if val is not None and val != "":
+        return val.strip()
+    win_val = windows_user_env(name)
+    if win_val:
+        return win_val.strip()
+    return default
+
+
 def load_dotenv(path: Path) -> list[str]:
     """Read KEY=VALUE lines into os.environ (real environment variables win)."""
     if not path.exists():
@@ -81,6 +105,7 @@ def load_dotenv(path: Path) -> list[str]:
             os.environ[key] = value
             loaded.append(key)
     return loaded
+
 
 
 def load_config(path: str | Path | None = None) -> dict:

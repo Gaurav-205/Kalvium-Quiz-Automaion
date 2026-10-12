@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import logging
-import os
 import sys
 from pathlib import Path
 
 from . import __version__
-from .config import ConfigError, load_config, path, stamp
+from .config import ConfigError, get_env, load_config, path, stamp
 
 EXAMPLES = """
 examples:
@@ -83,7 +82,7 @@ def setup_logging(log_path: Path, console) -> None:
         h._kalbot = True
         root.addHandler(h)
     for name in ("httpx", "httpx2", "httpcore", "google_genai", "anthropic", "urllib3"):
-        logging.getLogger(name).setLevel(logging.WARNING)
+        logging.getLogger(name).setLevel(logging.ERROR)
 
 
 def new_run_dir(root: Path, suffix: str) -> Path:
@@ -108,7 +107,7 @@ def task_filter(cfg: dict, only: str | None) -> dict[str, bool]:
 def main(argv=None) -> int:
     for stream in (sys.stdout, sys.stderr):   # never crash on odd characters in a Windows console
         try:
-            stream.reconfigure(errors="replace", line_buffering=True)
+            stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
         except (AttributeError, ValueError):
             pass
     from .ui import UI
@@ -243,6 +242,9 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
     from rich.table import Table
     from rich.text import Text
 
+    for name in ("httpx", "httpx2", "httpcore", "google_genai", "anthropic", "urllib3"):
+        logging.getLogger(name).setLevel(logging.ERROR)
+
     checks: list[tuple[str, str, str]] = []   # (ok|warn|fail, what, detail)
 
     def add(state: str, what: str, detail: str = "") -> None:
@@ -257,9 +259,10 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
         add("ok" if found else "fail", f"package {pkg}", "installed" if found else "missing: pip install -e .")
 
     env = cfg["llm"]["api_key_env"].get(prov, "")
-    key = os.environ.get(env, "")
+    key = get_env(env) if env else ""
     add("ok" if key else "fail", f"{prov} API key", f"{env} is set ({len(key)} chars)" if key else
         f"{env} is not set: add it to .env (see .env.example)")
+
     if key and online:
         from .llm import LLM, Request, make_provider
         try:

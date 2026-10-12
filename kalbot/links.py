@@ -99,6 +99,9 @@ class LinkBook:
                     why = check_url(kind, e[kind])
                     if why:
                         problems.append(f"{path.name} entry {i + 1} ({e['lu']}): {kind}: {why}")
+            for k in ("file", "pdf"):
+                if e.get(k) and not Path(e[k]).exists():
+                    problems.append(f"{path.name} entry {i + 1} ({e['lu']}): {k}: file not found ({e[k]})")
             entries.append(e)
         return cls(entries, path, problems)
 
@@ -120,7 +123,7 @@ class LinkBook:
                     continue
             elif want.lower() not in (lu_title or "").lower():
                 continue
-            for kind in KINDS:
+            for kind in (*KINDS, "file", "pdf"):
                 if e.get(kind) and kind not in out:
                     out[kind] = e[kind]
         return out

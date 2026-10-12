@@ -119,3 +119,27 @@ def test_an_open_confirmation_is_not_the_result(page):
                 "document.body.insertAdjacentHTML('beforeend', '<p>Your score: 4/5</p><p>Not passed</p>'); }")
     r = call(pg, "result", CFG, before)
     assert (r["score"], r["total"], r["failStrong"], r["pass"]) == (4, 5, True, False)
+
+
+def test_file_input_detection(page):
+    pg = page('<div class="fixed inset-0 z-50 bg-white">'
+              '<h3>Logic Gates Assignment</h3>'
+              '<div><p>Upload your PDF</p><input type="file" accept=".pdf" class="hidden"></div>'
+              '<button>Submit</button></div>')
+    t = call(pg, "tasks", CFG)
+    assert len(t["fields"]) == 1
+    assert t["fields"][0]["tag"] == "file"
+    assert len(t["submits"]) == 1
+    assert t["submits"][0]["text"] == "Submit"
+
+
+def test_modal_occlusion_ignores_background_start_button(page):
+    pg = page('<div><button>Resume Assignment</button></div>'
+              '<div class="fixed inset-0 z-50 bg-white">'
+              '<h3>Assignment In Progress</h3>'
+              '<input type="file" accept=".pdf" class="hidden">'
+              '<button>Submit</button></div>')
+    st = call(pg, "state", CFG)
+    # The start button behind the modal is occluded and must not be treated as visible start
+    assert st["start"] is False
+    assert st["kind"] != "start"

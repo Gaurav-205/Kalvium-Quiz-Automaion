@@ -4,7 +4,7 @@
 // never has to guess. The only page writes are setEditor()/paste(), which
 // Python calls to put an approved answer into a code or rich-text editor.
 (() => {
-  const VERSION = 3;
+  const VERSION = 8;
   if (window.__kqb && window.__kqb.version === VERSION) return;
 
   const K = { version: VERSION, items: [], root: null };
@@ -24,8 +24,27 @@
   const any = (regexes, text) => regexes.some((re) => re.test(text || ''));
   const cls = (el) => (el && el.getAttribute && el.getAttribute('class')) || '';
 
+  function activeModal() {
+    const list = [...document.querySelectorAll('div.fixed.inset-0[class*="z-"], div.fixed.inset-0.z-50, [role="dialog"], [aria-modal="true"]')];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (!m.isConnected) continue;
+      const c = (m.getAttribute('class') || '');
+      if (c.includes('z-') || m.getAttribute('role') === 'dialog' || m.getAttribute('aria-modal') === 'true') {
+        const r = m.getBoundingClientRect();
+        if (r.width > 50 && r.height > 50) {
+          if (m.children.length === 0 && !m.innerText.trim()) continue;
+          return m;
+        }
+      }
+    }
+    return null;
+  }
+
   function visible(el) {
     if (!el || el.nodeType !== 1 || !el.isConnected) return false;
+    const modal = activeModal();
+    if (modal && !modal.contains(el) && !el.contains(modal)) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     const st = getComputedStyle(el);
@@ -123,7 +142,9 @@
   }
 
   const ownClickable = (el) =>
+    (el.tagName === 'BUTTON' && el.type !== 'submit') ||
     el.hasAttribute('onclick') || el.hasAttribute('tabindex') ||
+    /cursor-pointer/i.test(cls(el)) ||
     /^(button|option|radio|checkbox)$/.test(el.getAttribute('role') || '') ||
     getComputedStyle(el).cursor === 'pointer';
 
@@ -134,6 +155,12 @@
   function heuristicGroups(cfg) {
     const navs = buttons([...cfg.next, ...cfg.submit]);
     const navKeys = new Set([...cfg.next, ...cfg.submit, ...cfg.start, ...cfg.prev].map(btnKey));
+    const actionKeys = new Set([
+      'save', 'saved', 'save draft', 'save & next', 'save answer',
+      'pre-submission review', 'preview', 'review',
+      'reset', 'clear', 'clear response', 'run', 'run tests', 'run code',
+      'cancel', 'close', 'back', 'discard',
+    ]);
     for (const nav of navs) {
       let cont = nav.parentElement;
       for (let lvl = 0; cont && lvl < 6; lvl++, cont = cont.parentElement) {
@@ -145,9 +172,9 @@
           const kids = [...parent.children].filter((k) => visible(k) && textOf(k));
           if (kids.length < 2 || kids.length > 8) continue;
           if (!kids.every((k) => k.tagName === kids[0].tagName)) continue;
-          if (kids.some((k) => k.contains(nav) || k.querySelector('input, textarea, select'))) continue;
+          if (kids.some((k) => k.contains(nav) || k.tagName === 'A' || k.querySelector('input, textarea, select, a[href]'))) continue;
           const texts = kids.map(textOf);
-          if (texts.some((t) => navKeys.has(btnKey(t)) || t.length > 600)) continue;
+          if (texts.some((t) => navKeys.has(btnKey(t)) || actionKeys.has(btnKey(t)) || t.length > 600)) continue;
           if (texts.every((t) => /^\d{1,2}$/.test(t))) continue;   // question-number pills
           if (!kids.every(ownClickable)) continue;
           return [{ source: 'heuristic', items: kids.map((el) => ({ el, input: null, aria: null })) }];
@@ -424,6 +451,11 @@
     return navInfo(cfg);
   };
 
+  K.candidateGroups = (cfg) => candidateGroups(cfg);
+  K.pickGroup = (cfg) => pickGroup(cfg);
+  K.heuristicGroups = (cfg) => heuristicGroups(cfg);
+  K.buttons = buttons;
+
   K.selInfo = (i) => selInfo(K.items[i]);
 
   // Options whose look differs from the majority (the selected ones), for
@@ -503,15 +535,14 @@
   const DIALOGS = '[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"], div.fixed.inset-0';
   const WORKSPACE = '[data-kqb-field], .monaco-editor, .cm-editor, .CodeMirror, .ace_editor, textarea, ' +
     '[contenteditable="true"], input[type="url"], input[type="text"]';
-  const OPTIONISH = '#test-component, [data-kqb-opt], input[type="radio"], input[type="checkbox"], [role="radio"], ' +
-    '[role="checkbox"], [role="option"], [role="radiogroup"]';
+  const QUIZ_CONTAINER = '#test-component, [data-kqb-opt], input[type="radio"], [role="radio"], [role="radiogroup"]';
   K.confirm = (cfg, texts) => {
     clearMarks('data-kqb-btn', 'confirm');
     const dialogs = [...document.querySelectorAll(DIALOGS)].filter(visible);
     for (const d of dialogs.reverse()) {
       if (d.querySelector('[data-kqb-clicked]') || (K.root && d.contains(K.root))) continue;
       if (d.querySelector(WORKSPACE)) continue;   // the assignment workspace is not a confirmation
-      if (d.querySelector(OPTIONISH) || PROGRESS.test(textOf(d).slice(0, 3000))) continue;   // a quiz, not a confirmation
+      if (d.querySelector(QUIZ_CONTAINER) || PROGRESS.test(textOf(d).slice(0, 3000))) continue;   // a quiz, not a confirmation
       const b = buttons(texts || cfg.confirm, d).filter((x) => !isDisabled(x) && !x.hasAttribute('data-kqb-clicked'));
       if (b.length) { mark(b[0], 'data-kqb-btn', 'confirm'); return true; }
     }
@@ -848,7 +879,12 @@
         el.getAttribute('aria-disabled') === 'true';
     }
     if (api && api.readOnly) return true;
-    return !!el.querySelector('textarea[readonly], .cm-content[contenteditable="false"]') ||
+    if (tag === 'editor') {
+      return el.getAttribute('aria-readonly') === 'true' ||
+        /(^|\s)read-only(\s|$)/.test(cls(el)) ||
+        !!el.querySelector('.cm-content[contenteditable="false"]');
+    }
+    return !!el.querySelector('textarea[readonly]:not(.ime-text-area)') ||
       el.getAttribute('aria-readonly') === 'true' || /(^|\s)read-only(\s|$)/.test(cls(el));
   }
 
@@ -865,7 +901,7 @@
     const blocked = (el) => !!el.closest(OUTSIDE) || !!el.closest('[data-kqb-opt]');
     const cands = [];
     const add = (el, tag) => { if (!cands.some((c) => c.el === el || c.el.contains(el))) cands.push({ el, tag }); };
-    const tagOf = (el) => (el.matches(EDITOR_SEL) ? 'editor' : el.matches('textarea') ? 'textarea' : el.matches('input') ? 'input' : 'rich');
+    const tagOf = (el) => (el.matches(EDITOR_SEL) ? 'editor' : el.matches('textarea') ? 'textarea' : (el.matches('input') && (el.getAttribute('type') || '').toLowerCase() === 'file') ? 'file' : el.matches('input') ? 'input' : 'rich');
     let custom = [];
     if (cfg.taskFieldSelector) {
       try { custom = [...document.querySelectorAll(cfg.taskFieldSelector)].filter(visible); } catch (e) { /* fall back */ }
@@ -887,6 +923,10 @@
       for (const el of document.querySelectorAll('input')) {
         const type = (el.getAttribute('type') || 'text').toLowerCase();
         if (['text', 'url'].includes(type) && visible(el) && !blocked(el) && !el.closest(EDITOR_SEL)) add(el, 'input');
+        if (type === 'file' && !blocked(el) && !el.closest(EDITOR_SEL)) {
+          const parent = el.parentElement;
+          if ((parent && visible(parent)) || visible(el)) add(el, 'file');
+        }
       }
     }
     const submits = buttons(cfg.taskSubmit);

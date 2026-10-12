@@ -216,17 +216,29 @@ class PageOps:
         return False
 
     def close_overlay(self) -> None:
-        """Close a modal left open by the previous LU (assignment workspace, result popup)."""
+        """Close a modal left open by the previous LU (assignment workspace, result popup, feedback dialog)."""
         try:
-            overlay = self.page.locator("div.fixed.inset-0.z-50").first
-            if not (overlay.count() and overlay.is_visible()):
-                return
-            close = overlay.locator('button[aria-label="Close modal"], button[aria-label="Close"], '
-                                    'button:has-text("Close"), button:has-text("✕")').first
-            if close.count() and close.is_visible():
-                close.click()
-            else:
-                self.page.keyboard.press("Escape")
+            feedback_btn = self.page.locator('button[aria-label="Rate session as good"]').first
+            if feedback_btn.count() and feedback_btn.is_visible():
+                feedback_btn.click()
+                self.page.wait_for_timeout(300)
+                sub = self.page.locator('button:has-text("Submit"), button:has-text("Done")').first
+                if sub.count() and sub.is_visible():
+                    sub.click()
+                    self.page.wait_for_timeout(300)
+
+            overlays = self.page.locator('div.fixed.inset-0, [role="dialog"], [aria-modal="true"]')
+            for i in range(overlays.count()):
+                ov = overlays.nth(i)
+                if not ov.is_visible():
+                    continue
+                close = ov.locator('button[aria-label*="Close" i], button:has-text("Close"), '
+                                   'button:has-text("✕"), button:has-text("×")').first
+                if close.count() and close.is_visible():
+                    close.click()
+                    self.page.wait_for_timeout(300)
+                else:
+                    self.page.keyboard.press("Escape")
             self.settle()
         except PWError as e:
             log.debug("close overlay: %s", first_line(e))

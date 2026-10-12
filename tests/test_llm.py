@@ -116,9 +116,13 @@ def test_quiz_prompt_and_material():
 
 def test_missing_key_is_reported_without_value(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr("kalbot.llm.windows_user_env", lambda _: "")
+    monkeypatch.setattr("kalbot.config.windows_user_env", lambda _: "")
     with pytest.raises(LLMError) as e:
         make_provider({"provider": "gemini", "models": {"gemini": "m"}, "api_key_env": {"gemini": "GEMINI_API_KEY"}})
     assert "GEMINI_API_KEY" in str(e.value) and e.value.fatal
+
+
 
 
 # --------------------------------------------------------------------------- written / code / project

@@ -128,6 +128,7 @@ class Navigator:
         return any(p.lower() in u for p in self.cfg["patterns"]["login_url"])
 
     def list_livebooks(self) -> list[dict]:
+        self.ops.close_overlay()
         return self._call("listLivebooks", self.ops.jscfg)
 
     def wait_for_login(self) -> None:

@@ -25,7 +25,9 @@ from .ui import QuitRun, ReviewItem, short
 
 log = logging.getLogger("kalbot.tasks")
 
-TASK_KIND = {"text": "written", "short": "written", "code": "coding", "link": "links", "other": "written"}
+TASK_KIND = {
+    "text": "written", "short": "written", "code": "coding", "link": "links", "file": "written", "other": "written"
+}
 QUESTION_LIKE = re.compile(r"\?|\b(answer|output|result|explain|what|why|how|which|describe|define)\b", re.I)
 CODE_WORDS = re.compile(r"\b(code|program|function|implement|algorithm|"
                         r"write a (python|java|c\+\+|javascript|c) )", re.I)
@@ -232,12 +234,16 @@ class TaskSolver:
         self.fresh = False   # set per assignment: just retaken, so old answers in the boxes are ignored
         self.pat = cfg["patterns"]
         self.t = cfg["timeouts"]
+        self.run_dir = run_dir
         self.drafts_dir = run_dir / "drafts"
         self.snap_dir = run_dir / "snapshots"
 
     # ------------------------------------------------------------------ detection
 
     def _classify(self, f: Field) -> Field:
+        if f.tag == "file":
+            f.kind = "file"
+            return f
         named = next((NAMED_LINKS[k] for t in (f.elId or "").split() for k in NAMED_LINKS if k.fullmatch(t)), "")
         if f.tag in ("input", "textarea") and named:   # the portal's own field ids: input#pr, input#video
             f.kind, f.link_kind = "link", named
@@ -282,7 +288,7 @@ class TaskSolver:
         """The frame with the most open assignment boxes."""
         best = None
         any_done = False
-        for frame in page.frames:
+        for frame in self.ops.frames():
             got = self._read(frame)
             if not got:
                 continue
@@ -370,9 +376,28 @@ class TaskSolver:
         drafts = [d for d in drafts if not (d.field.kind == "other" and not d.field.required
                                             and not d.field.value.strip())]   # optional box: leave empty
 
-        # 1. links first: no model calls if a link we can't produce is missing
+        # 1. links and files first: no model calls if a link or file we can't produce is missing
         for d in drafts:
             f = d.field
+            if f.kind == "file":
+                file_path = given.get("file") or given.get("pdf")
+                if not file_path:
+                    slug_lb = slug(ctx.get("livebook", ""), 20).lower()
+                    for p in sorted(Path("runs").glob("**/*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
+                        stem = p.stem.lower()
+                        parts = stem.split("_")
+                        if f"lu_{ctx['lu']}_" in stem or f"lu_{ctx['lu']}" in parts or stem.endswith(f"_{ctx['lu']}"):
+                            if slug_lb and slug_lb not in stem and "solution" not in stem:
+                                continue
+                            file_path = str(p)
+                            break
+                if not file_path and self.llm:
+                    file_path = self._generate_pdf(f, ctx, course, material)
+                if file_path and Path(file_path).exists():
+                    d.value, d.source = str(Path(file_path).resolve()), "PDF solution"
+                else:
+                    d.missing = "needs a PDF file: add `file:` for this LU to submissions.yaml"
+                continue
             if f.kind == "other":
                 if f.value.strip() and not fresh:
                     d.value, d.source = f.value, "already in the box"
@@ -449,6 +474,47 @@ class TaskSolver:
             return "needs your pull request link: add `pr:` to submissions.yaml"
         return f"needs a {name} link: add `{kind}:` for this LU to submissions.yaml"
 
+    def _generate_pdf(self, f: Field, ctx: dict, course: str, material: str) -> str | None:
+        try:
+            self.ui.note("Drafting lab solution report for PDF upload with LLM...", indent=2)
+            question = f.prompt or f.label or material[:2000]
+            spec = WriteSpec(question, f.label or "Lab Report", (400, 900), False, 30000, [], markdown=True)
+            body = self.llm.write(spec, course, material)
+            body_html = body.replace("\n", "<br>")
+            html = (
+                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                "<style>@page { size: A4; margin: 16mm 18mm; }"
+                "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; "
+                "line-height: 1.55; color: #1f2937; font-size: 10.5pt; }"
+                "h1 { color: #1e3a8a; font-size: 16pt; border-bottom: 2px solid #2563eb; padding-bottom: 6px; }"
+                "h2 { color: #1e40af; font-size: 13pt; margin-top: 14px; }"
+                "pre, code { font-family: Consolas, monospace; background: #f1f5f9; padding: 2px 5px; }"
+                "pre { font-size: 9.5pt; }"
+                "table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.5pt; }"
+                "th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; }"
+                "th { background: #f8fafc; font-weight: 600; }</style></head><body>"
+                f"<h1>{ctx['livebook']} — LU {ctx['lu']}</h1>"
+                f"<p><strong>Topic:</strong> {ctx['lu_title']}</p><hr>"
+                f"<div>{body_html}</div></body></html>"
+            )
+            wants_image = any(ext in (f.label or "").lower() or ext in (f.prompt or "").lower()
+                              for ext in ("png", "jpeg", "jpg", "image"))
+            p = self.ops.page.context.new_page()
+            p.set_content(html, wait_until="load")
+            if wants_image:
+                out_file = self.run_dir / f"solution_LU_{ctx['lu']}.png"
+                p.screenshot(path=str(out_file), full_page=True)
+                log.info("auto-generated image %s", out_file)
+            else:
+                out_file = self.run_dir / f"solution_LU_{ctx['lu']}.pdf"
+                p.pdf(path=str(out_file), format="A4", print_background=True)
+                log.info("auto-generated PDF %s", out_file)
+            p.close()
+            return str(out_file)
+        except Exception as e:
+            log.warning("failed to auto-generate file upload: %s", e)
+            return None
+
     def _plan_repo(self, d: Draft, drafts: list[Draft], g: Group, ctx: dict, course: str, material: str) -> None:
         others = sorted({o.field.link_kind for o in drafts if o.field.kind == "link" and o is not d})
         question = "\n\n".join(dict.fromkeys(f.prompt for f in g.fields if f.prompt)) or d.field.label
@@ -490,6 +556,8 @@ class TaskSolver:
                                         files=sorted(d.project.files), editable=False))
             elif f.kind == "link":
                 items.append(ReviewItem(f.title, "link", d.value, d.source))
+            elif f.kind == "file":
+                items.append(ReviewItem(f.title, "text", d.value, f"file upload · {d.source}"))
             else:
                 items.append(ReviewItem(f.title, "text", d.value, f"{count_words(d.value)} words · {d.source}"))
         return items
@@ -533,6 +601,8 @@ class TaskSolver:
         base.mkdir(parents=True, exist_ok=True)
         for i, d in enumerate(drafts, 1):
             f = d.field
+            if f.kind == "file":
+                continue
             ext = SUFFIX.get(f.language.lower().split()[0], ".txt") if f.kind == "code" and f.language else ".md"
             (base / f"{i:02d}_{slug(f.title, 40)}{ext}").write_text(d.value, encoding="utf-8")
             if d.project:
@@ -569,6 +639,16 @@ class TaskSolver:
         if f is None:
             raise UnexpectedState(f"'{d.field.title}' disappeared from the page")
         sel = f'[data-kqb-field="{f.index}"]'
+        if f.tag == "file":
+            loc = frame.locator(sel).first
+            try:
+                loc.set_input_files(d.value)
+            except PWError as e:
+                raise UnexpectedState(f"could not attach file to '{f.title}': {e}") from None
+            self.ops.pause()
+            self.ops.settle()
+            log.info("attached file %s to %s", d.value, f.title)
+            return
         if f.tag in ("textarea", "input"):
             loc = frame.locator(sel).first
             try:
@@ -603,6 +683,8 @@ class TaskSolver:
                 page.keyboard.press("Enter")
 
     def _value_ok(self, frame, f: Field, expected: str) -> bool:
+        if f.tag == "file":
+            return True
         actual = self.ops.call(frame, "fieldValue", f.index)
         if actual is None:
             return False
@@ -702,7 +784,7 @@ class TaskSolver:
             fresh = self._refresh(frame, g.keys)
             raw = self.ops.call(frame, "tasks", self.ops.jscfg)
             return fresh if any(s["index"] == fresh.submit and not s["disabled"] for s in raw["submits"]) else None
-        if not self.ops.poll(enabled, 5000, 300):
+        if not self.ops.poll(enabled, 15000, 300):
             raise UnexpectedState("Submit stayed disabled after filling every box")
         g = self._refresh(frame, g.keys)
         sel = f'[data-kqb-tsub="{g.submit}"]'

@@ -69,9 +69,14 @@ class QuitRun(Exception):
 
 class UI:
     def __init__(self, console: Console | None = None, interactive: bool | None = None):
+        for s in (sys.stdout, sys.stderr):
+            try:
+                s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
         if console is None:
             width = None if sys.stdout.isatty() else 120
-            console = Console(theme=THEME, highlight=False, width=width)
+            console = Console(theme=THEME, highlight=False, width=width, legacy_windows=False)
         self.c = console
         self.interactive = (sys.stdin.isatty() and sys.stdout.isatty()) if interactive is None else interactive
 

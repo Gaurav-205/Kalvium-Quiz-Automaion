@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 import urllib.error
 import urllib.request
+
+from .config import get_env
 
 log = logging.getLogger("kalbot.github")
 
 
 class GitHubError(Exception):
     pass
+
 
 
 class GitHub:
@@ -30,10 +32,11 @@ class GitHub:
     @classmethod
     def from_config(cls, cfg: dict) -> GitHub | None:
         g = cfg.get("github") or {}
-        token = os.environ.get(str(g.get("token_env") or "GITHUB_TOKEN"), "").strip()
+        token = get_env(str(g.get("token_env") or "GITHUB_TOKEN"))
         if not token:
             return None
         return cls(token, g.get("api_url") or "https://api.github.com")
+
 
     def request(self, method: str, path: str, body: dict | None = None):
         """Returns (status, json). Raises GitHubError on HTTP errors other than 404/409/422."""

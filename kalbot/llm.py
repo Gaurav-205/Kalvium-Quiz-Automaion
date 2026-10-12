@@ -10,11 +10,11 @@ import json
 import logging
 import os
 import re
-import sys
 import time
 from dataclasses import dataclass, field
 
 from . import prompts
+from .config import windows_user_env as _win_env
 
 log = logging.getLogger("kalbot.llm")
 
@@ -171,17 +171,9 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
 }
 
 
-def windows_user_env(name: str) -> str:
-    """A variable set with `setx` is only visible to terminals opened afterwards: read it from the registry."""
-    if sys.platform != "win32":
-        return ""
-    try:
-        import winreg
+# Keep alias for backward compatibility and test monkeypatching
+windows_user_env = _win_env
 
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
-            return str(winreg.QueryValueEx(k, name)[0])
-    except OSError:
-        return ""
 
 
 def make_provider(llm_cfg: dict) -> LLMProvider:
@@ -194,6 +186,7 @@ def make_provider(llm_cfg: dict) -> LLMProvider:
     key = ""
     if cls.needs_key:
         env = (llm_cfg.get("api_key_env") or {}).get(name, "")
+        # Check os.environ, then the module's windows_user_env alias (respects test mocks)
         key = (os.environ.get(env, "") or windows_user_env(env)).strip() if env else ""
         if not key:
             raise LLMError(
@@ -201,6 +194,7 @@ def make_provider(llm_cfg: dict) -> LLMProvider:
                 f"(see .env.example), or on Windows run:  setx {env} \"<your key>\"  and open a new terminal."
             )
     return cls(model, key, llm_cfg, fallbacks)
+
 
 
 # --------------------------------------------------------------------------- data

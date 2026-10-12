@@ -152,10 +152,17 @@ patterns:
     - '\bcompleted?\b'
     - '\bdone\b'
     - '\bsubmitted\b'
-    - 'check[-_ ]?(circle|mark)|circle[-_ ]?check|\btick\b'
+    - '\bchecked\b'
+    - 'check[-_ ]?(circle|mark)|circle[-_ ]?check|\btick\b|lucide[-_]check'
     - '(?<![\d.])100\s*%'
     - 'progress=100\b'
     - '16a34a'                     # the portal's green "done" colour (bg-[#16a34a])
+    - '22c55e'                     # green-500
+    - '15803d'                     # green-700
+    - '65a30d'                     # green-600 / lime (bg-[#65A30D])
+    - '3f6212'                     # green-800 border (border-[#3F6212])
+    - 'bg-green'
+    - 'text-green'
   lu_not_completed:                # overrides lu_completed
     - '\bincomplete\b'
     - 'not[-_ ]?(yet[-_ ])?(completed?|started|submitted|done)'
@@ -177,7 +184,7 @@ patterns:
     - 'attempted on\b'
     - 'view (your )?(result|results|submission|answers)\b'
   # option groups near these words are feedback widgets, not quiz questions
-  quiz_exclude: ['rate (this|the)', 'how (was|would you rate|helpful|useful|satisfied)', '\bfeedback\b', '\brating\b']
+  quiz_exclude: ['\brate (this|the)\b', '\bhow (was|would you rate|helpful|useful|satisfied)\b', '\bfeedback\b', '\brating\b']
   multi_select: ['select all', 'choose all', 'all that apply', 'more than one', 'multiple (correct )?(answers|options)', '(select|choose) (any )?(two|three|2|3)\b']
   # result screen (only text that appeared after Submit is checked)
   result_fail: ['\bfailed\b', 'did not pass', 'not passed', 'try again', 'better luck', '\bunsuccessful\b']
