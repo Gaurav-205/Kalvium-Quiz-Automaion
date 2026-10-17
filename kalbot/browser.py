@@ -85,8 +85,9 @@ def manual_login(cfg: dict, ui) -> int:
     profile = path(cfg, "profile")
     ui.say("Opening Chrome with the bot profile.")
     ui.say("Log in to Kalvium, wait until your livebooks show, then [b]close that Chrome window[/b].", markup=True)
-    subprocess.run([chrome, f"--user-data-dir={profile}", "--no-first-run",
-                    "--no-default-browser-check", livebooks_url(cfg)])
+    subprocess.run(
+        [chrome, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", livebooks_url(cfg)]
+    )
     ui.ok("Chrome closed; the session is saved. Next: kalbot discover")
     return 0
 
@@ -106,7 +107,7 @@ class PageOps:
         self.jscfg = js_config(cfg)
         d = cfg["delays"]
         self.lo, self.hi = float(d["action_min_s"]), float(d["action_max_s"])
-        self.expect_confirm = False   # accept the next native confirm() (after clicking Submit)
+        self.expect_confirm = False  # accept the next native confirm() (after clicking Submit)
         portal = urlparse(cfg["portal"]["base_url"]).hostname or ""
         self.hosts = {h for h in (portal, "kalvium.community", "kalvium.com", "127.0.0.1", "localhost") if h}
         page.on("dialog", self._on_dialog)
@@ -129,7 +130,7 @@ class PageOps:
         try:
             if not scope.evaluate("() => !!(window.__kqb && window.__kqb.version)"):
                 scope.evaluate(JS_HELPERS)
-        except PWError as e:   # frame mid-navigation; the call that follows reports it
+        except PWError as e:  # frame mid-navigation; the call that follows reports it
             log.debug("could not inject helpers: %s", first_line(e))
 
     def frames(self) -> list:
@@ -169,7 +170,7 @@ class PageOps:
             except PWError as e:
                 msg = first_line(e)
                 if any(s in msg for s in ("context was destroyed", "navigat", "detached", "closed")):
-                    log.debug("poll: %s", msg)   # page navigating between checks
+                    log.debug("poll: %s", msg)  # page navigating between checks
                 elif msg not in seen:
                     seen.add(msg)
                     log.warning("page check failed: %s", msg)
@@ -185,22 +186,71 @@ class PageOps:
         try:
             self.page.wait_for_load_state("networkidle", timeout=self.t["settle_ms"])
         except PWTimeout:
-            pass   # SPAs with websockets never go fully idle
+            pass  # SPAs with websockets or long polls never go fully idle
+        try:
+            # Deterministically wait for active loaders/spinners to finish if present
+            spinners = self.page.locator('.animate-spin, [aria-busy="true"], .loading-spinner, [data-loading="true"]')
+            if spinners.count() > 0 and spinners.first.is_visible():
+                spinners.first.wait_for(state="hidden", timeout=min(2000, self.t["settle_ms"]))
+        except (PWError, PWTimeout):
+            pass
 
     def goto(self, url: str) -> None:
-        self.page.goto(url, wait_until="domcontentloaded")
-        self.settle()
+        attempts = 3
+        last_exc: BaseException | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                self.page.goto(url, wait_until="domcontentloaded")
+                self.settle()
+                return
+            except (PWError, PWTimeout) as e:
+                last_exc = e
+                msg = first_line(e)
+                if attempt < attempts:
+                    log.warning("navigation to %s failed (attempt %d/%d): %s; retrying", url, attempt, attempts, msg)
+                    self.page.wait_for_timeout(1000 * attempt)
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
 
     # ---------------------------------------------------------------- acting
 
     def click(self, scope, selector: str, what: str) -> None:
-        loc = (scope or self.page.main_frame).locator(selector).first
-        try:
-            loc.scroll_into_view_if_needed(timeout=self.t["action_ms"])
-            loc.click(timeout=self.t["action_ms"])
-        except PWError as e:
-            raise UnexpectedState(f"could not click {what}: {first_line(e)}") from None
-        log.info("clicked %s", what)
+        target_scope = scope or self.page.main_frame
+        attempts = 3
+        last_exc: PWError | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                loc = target_scope.locator(selector).first
+                loc.scroll_into_view_if_needed(timeout=self.t["action_ms"])
+                loc.click(timeout=self.t["action_ms"])
+                log.info("clicked %s", what)
+                return
+            except PWError as e:
+                last_exc = e
+                msg = first_line(e).lower()
+                is_transient = any(
+                    t in msg
+                    for t in (
+                        "detached",
+                        "not attached",
+                        "navigat",
+                        "context was destroyed",
+                        "intercepted",
+                        "another element",
+                        "moving",
+                        "timeout",
+                    )
+                )
+                if is_transient and attempt < attempts:
+                    log.debug(
+                        "transient click failure for %s (attempt %d/%d): %s; retrying", what, attempt, attempts, msg
+                    )
+                    self.page.wait_for_timeout(300)
+                    continue
+                break
+        raise UnexpectedState(f"could not click {what}: {first_line(last_exc)}") from None
 
     def confirm(self, texts: list[str] | None = None, what: str = "confirm") -> bool:
         """Click the button of a confirmation dialog ("Proceed", "Yes, Submit"...) if one is open."""
@@ -221,22 +271,28 @@ class PageOps:
             feedback_btn = self.page.locator('button[aria-label="Rate session as good"]').first
             if feedback_btn.count() and feedback_btn.is_visible():
                 feedback_btn.click()
-                self.page.wait_for_timeout(300)
+                self.page.wait_for_timeout(200)
                 sub = self.page.locator('button:has-text("Submit"), button:has-text("Done")').first
                 if sub.count() and sub.is_visible():
                     sub.click()
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(200)
 
             overlays = self.page.locator('div.fixed.inset-0, [role="dialog"], [aria-modal="true"]')
-            for i in range(overlays.count()):
+            count = min(overlays.count(), 5)
+            for i in range(count):
                 ov = overlays.nth(i)
                 if not ov.is_visible():
                     continue
-                close = ov.locator('button[aria-label*="Close" i], button:has-text("Close"), '
-                                   'button:has-text("✕"), button:has-text("×")').first
+                close = ov.locator(
+                    'button[aria-label*="Close" i], button:has-text("Close"), '
+                    'button:has-text("✕"), button:has-text("×")'
+                ).first
                 if close.count() and close.is_visible():
                     close.click()
-                    self.page.wait_for_timeout(300)
+                    try:
+                        ov.wait_for(state="hidden", timeout=1000)
+                    except (PWError, PWTimeout):
+                        pass
                 else:
                     self.page.keyboard.press("Escape")
             self.settle()

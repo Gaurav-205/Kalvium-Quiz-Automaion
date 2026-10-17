@@ -107,7 +107,6 @@ def load_dotenv(path: Path) -> list[str]:
     return loaded
 
 
-
 def load_config(path: str | Path | None = None) -> dict:
     """Defaults + the user's config.yaml. Adds cfg['_meta'] with paths and warnings."""
     home = workspace()
@@ -137,12 +136,71 @@ def load_config(path: str | Path | None = None) -> dict:
 
 
 def validate(cfg: dict) -> None:
+    # Portal validation
+    base_url = str(cfg.get("portal", {}).get("base_url", "")).strip()
+    if not base_url or not (base_url.startswith("http://") or base_url.startswith("https://")):
+        raise ConfigError(f"portal.base_url must be a valid http(s) URL, got {base_url!r}")
+    sem = cfg.get("portal", {}).get("semester")
+    if sem is not None:
+        try:
+            if int(sem) < 1:
+                raise ConfigError("portal.semester must be a positive integer (>= 1)")
+        except (ValueError, TypeError):
+            raise ConfigError(f"portal.semester must be an integer, got {sem!r}") from None
+
+    # LLM provider validation
     prov = str(cfg["llm"]["provider"]).strip().lower()
     if prov not in cfg["llm"]["models"]:
         raise ConfigError(f"llm.provider '{prov}' has no model in llm.models")
+
+    # Delays validation
+    d = cfg.get("delays", {})
     for key in ("action_min_s", "action_max_s"):
-        if float(cfg["delays"][key]) < 0:
+        if float(d[key]) < 0:
             raise ConfigError(f"delays.{key} must be >= 0")
+    if float(d["action_min_s"]) > float(d["action_max_s"]):
+        raise ConfigError(
+            f"delays.action_min_s ({d['action_min_s']}) cannot be greater than "
+            f"delays.action_max_s ({d['action_max_s']})"
+        )
+
+    # Timeouts validation
+    for name, val in cfg.get("timeouts", {}).items():
+        try:
+            if float(val) < 0:
+                raise ConfigError(f"timeouts.{name} must be >= 0")
+        except (ValueError, TypeError):
+            raise ConfigError(f"timeouts.{name} must be a number, got {val!r}") from None
+
+    # Run options validation
+    run_cfg = cfg.get("run", {})
+    if "pass_fraction" in run_cfg:
+        try:
+            pf = float(run_cfg["pass_fraction"])
+            if not 0.0 <= pf <= 1.0:
+                raise ConfigError("run.pass_fraction must be between 0.0 and 1.0")
+        except (ValueError, TypeError):
+            raise ConfigError("run.pass_fraction must be a numeric value") from None
+    if "limit" in run_cfg and run_cfg["limit"] is not None:
+        try:
+            if int(run_cfg["limit"]) < 0:
+                raise ConfigError("run.limit must be >= 0")
+        except (ValueError, TypeError):
+            raise ConfigError("run.limit must be an integer") from None
+    if "login_timeout_minutes" in run_cfg:
+        try:
+            if float(run_cfg["login_timeout_minutes"]) <= 0:
+                raise ConfigError("run.login_timeout_minutes must be > 0")
+        except (ValueError, TypeError):
+            raise ConfigError("run.login_timeout_minutes must be a number") from None
+
+    # Tasks validation
+    tasks_cfg = cfg.get("tasks", {})
+    for task_name, task_enabled in tasks_cfg.items():
+        if not isinstance(task_enabled, bool):
+            raise ConfigError(f"tasks.{task_name} must be a boolean (true/false), got {task_enabled!r}")
+
+    # Regex patterns validation
     for group in ("patterns",):
         for name, pats in cfg[group].items():
             for p in pats:
@@ -150,6 +208,14 @@ def validate(cfg: dict) -> None:
                     re.compile(str(p))
                 except re.error as e:
                     raise ConfigError(f"{group}.{name}: bad regex {p!r}: {e}") from None
+
+
+def workspace_path(cfg: dict, target: str | Path) -> Path:
+    """Resolve an arbitrary file or folder path against the active workspace."""
+    p = Path(target).expanduser()
+    if not p.is_absolute():
+        p = cfg["_meta"]["home"] / p
+    return p
 
 
 def path(cfg: dict, key: str, create: bool = True) -> Path:
@@ -175,10 +241,17 @@ def js_config(cfg: dict) -> dict:
     """The subset of the settings the in-page helpers need."""
     s, t, p = cfg["selectors"], cfg["texts"], cfg["patterns"]
     return {
-        "start": strs(t["start"]), "next": strs(t["next"]), "submit": strs(t["submit"]),
-        "confirm": strs(t["confirm"]), "retake": strs(t["retake"]), "prev": strs(t["previous"]),
-        "taskSubmit": strs(t["task_submit"]), "run": strs(t["run"]), "proceed": strs(t["proceed"]),
-        "save": strs(t["save"]), "preSubmit": strs(t["pre_submit"]),
+        "start": strs(t["start"]),
+        "next": strs(t["next"]),
+        "submit": strs(t["submit"]),
+        "confirm": strs(t["confirm"]),
+        "retake": strs(t["retake"]),
+        "prev": strs(t["previous"]),
+        "taskSubmit": strs(t["task_submit"]),
+        "run": strs(t["run"]),
+        "proceed": strs(t["proceed"]),
+        "save": strs(t["save"]),
+        "preSubmit": strs(t["pre_submit"]),
         "optionSelector": s.get("quiz_option") or "",
         "questionSelector": s.get("quiz_question") or "",
         "taskFieldSelector": s.get("task_field") or "",
@@ -188,10 +261,15 @@ def js_config(cfg: dict) -> dict:
         "luNumberRegex": s["lu_number_regex"],
         "moduleToggleSelector": s.get("module_toggle") or "",
         "moduleRegex": s["module_regex"],
-        "exclude": strs(p["quiz_exclude"]), "multi": strs(p["multi_select"]),
-        "completed": strs(p["quiz_completed"]), "fail": strs(p["result_fail"]), "pass": strs(p["result_pass"]),
-        "taskExclude": strs(p["task_exclude"]), "taskDone": strs(p["task_done"]),
-        "taskSuccess": strs(p["task_success"]), "taskError": strs(p["task_error"]),
+        "exclude": strs(p["quiz_exclude"]),
+        "multi": strs(p["multi_select"]),
+        "completed": strs(p["quiz_completed"]),
+        "fail": strs(p["result_fail"]),
+        "pass": strs(p["result_pass"]),
+        "taskExclude": strs(p["task_exclude"]),
+        "taskDone": strs(p["task_done"]),
+        "taskSuccess": strs(p["task_success"]),
+        "taskError": strs(p["task_error"]),
     }
 
 
@@ -200,8 +278,11 @@ def save_overrides(config_path: Path, section: str, values: dict[str, str]) -> l
 
     Edits the text in place so the user's comments survive; returns the keys written.
     """
-    text = config_path.read_text(encoding="utf-8") if config_path.exists() else (
-        "# Your kalbot settings. Only what differs from kalbot/defaults.yaml.\n")
+    text = (
+        config_path.read_text(encoding="utf-8")
+        if config_path.exists()
+        else ("# Your kalbot settings. Only what differs from kalbot/defaults.yaml.\n")
+    )
     try:
         current = yaml.safe_load(text) or {}
     except yaml.YAMLError:
@@ -215,7 +296,7 @@ def save_overrides(config_path: Path, section: str, values: dict[str, str]) -> l
     if section not in current:
         updated = text.rstrip("\n") + f"\n\n{section}:\n{lines}"
     elif header:
-        updated = text[:header.end()] + lines + text[header.end():]
+        updated = text[: header.end()] + lines + text[header.end() :]
     else:
         return []
     # drop now-duplicated empty keys (`key: ""`) the user had in that section

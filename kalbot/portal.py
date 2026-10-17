@@ -35,12 +35,13 @@ class LU:
     href: str
     text: str
     completed: bool
-    type_hint: str      # quiz | written | coding | ""
+    type_hint: str  # quiz | written | coding | ""
 
 
 @dataclass
 class LUView:
     """What an LU page shows right now."""
+
     frame: object
     quiz: dict
     quiz_done: bool
@@ -61,8 +62,12 @@ class LUView:
 
     @property
     def ready(self) -> bool:
-        return self.quiz_kind in ("question", "start") or self.quiz_done or bool(self.quiz.get("retake")) \
+        return (
+            self.quiz_kind in ("question", "start")
+            or self.quiz_done
+            or bool(self.quiz.get("retake"))
             or bool(self.tasks)
+        )
 
     def describe(self) -> str:
         if self.quiz_done and not self.open_groups:
@@ -79,9 +84,22 @@ class LUView:
 
 
 class Navigator:
-    def __init__(self, cfg: dict, ops: PageOps, quiz: QuizSolver, tasks: TaskSolver, runlog, ui, *,
-                 run_dir: Path, dry_run: bool, limit: int, livebook: str | None, lu: str | None,
-                 enabled: dict[str, bool]):
+    def __init__(
+        self,
+        cfg: dict,
+        ops: PageOps,
+        quiz: QuizSolver,
+        tasks: TaskSolver,
+        runlog,
+        ui,
+        *,
+        run_dir: Path,
+        dry_run: bool,
+        limit: int,
+        livebook: str | None,
+        lu: str | None,
+        enabled: dict[str, bool],
+    ):
         self.cfg = cfg
         self.ops = ops
         self.page = ops.page
@@ -142,8 +160,9 @@ class Navigator:
         else:
             self.ui.warn("NOT LOGGED IN. Log in to Kalvium in the Chrome window that just opened.")
             self.ui.note(f"Waiting up to {mins:g} minutes for {self.url} to show your livebooks...", indent=1)
-            self.ui.note("If Google blocks the sign-in there, close this, run `kalbot login`, then run again.",
-                         indent=1)
+            self.ui.note(
+                "If Google blocks the sign-in there, close this, run `kalbot login`, then run again.", indent=1
+            )
         deadline = time.monotonic() + mins * 60
         last_nav = 0.0
         on_list_since = None
@@ -161,7 +180,7 @@ class Navigator:
                 if time.monotonic() - on_list_since > 25:
                     self._no_cards()
             elif time.monotonic() - last_nav > 10:
-                last_nav = time.monotonic()   # logged in but landed elsewhere
+                last_nav = time.monotonic()  # logged in but landed elsewhere
                 try:
                     self.ops.goto(self.url)
                 except PWError:
@@ -181,7 +200,8 @@ class Navigator:
             f"  {self.page.url}\n"
             f"Saved {base}.png/.html and {report.name}.\n"
             "Set selectors.livebook_card in config.yaml to a selector matching one card per subject\n"
-            "(see the report's links/dataAttributes), or adjust selectors.livebook_href_regex.")
+            "(see the report's links/dataAttributes), or adjust selectors.livebook_href_regex."
+        )
 
     # ------------------------------------------------------------------ livebook + learning path
 
@@ -224,19 +244,22 @@ class Navigator:
         tab = self.cfg["selectors"]["learning_path_tab"]
         rendered = lambda: self.list_lus() or self._call("collapsedModules", self.ops.jscfg)  # noqa: E731
         # the page may still be loading: wait for the tab (or a path that is already shown)
-        how = self.ops.poll(lambda: ("tab" if tab and self.ops.click_text(tab) else None) or
-                            ("shown" if rendered() else None), self.t["list_ms"])
+        how = self.ops.poll(
+            lambda: ("tab" if tab and self.ops.click_text(tab) else None) or ("shown" if rendered() else None),
+            self.t["list_ms"],
+        )
         if how == "tab":
             self.ops.pause()
             self.ops.settle()
         # wait until the path has rendered: LU rows or (all-collapsed) module toggles
         self.ops.poll(rendered, self.t["list_ms"])
         clicked: set[str] = set()
-        for _ in range(40):   # expand collapsed modules one at a time (DOM re-renders)
+        for _ in range(40):  # expand collapsed modules one at a time (DOM re-renders)
             if not self._call("collapsedModules", self.ops.jscfg):
                 break
-            texts = self.ops.eval(None, "() => [...document.querySelectorAll('[data-kqb-mod]')]"
-                                        ".map(e => e.innerText.trim().slice(0, 80))")
+            texts = self.ops.eval(
+                None, "() => [...document.querySelectorAll('[data-kqb-mod]')].map(e => e.innerText.trim().slice(0, 80))"
+            )
             todo = [i for i, t in enumerate(texts) if t not in clicked]
             if not todo:
                 break
@@ -248,7 +271,7 @@ class Navigator:
     # ------------------------------------------------------------------ one LU
 
     def open_lu(self, lb: dict, lu: LU) -> None:
-        self.ops.close_overlay()   # an assignment workspace left open by the previous LU
+        self.ops.close_overlay()  # an assignment workspace left open by the previous LU
         if lu.href:
             self.ops.goto(lu.href)
         else:
@@ -262,7 +285,7 @@ class Navigator:
             try:
                 self.page.wait_for_url(lambda u: u != old, timeout=8000)
             except PWTimeout:
-                pass   # LU may open in place (panel/drawer)
+                pass  # LU may open in place (panel/drawer)
             self.ops.settle()
         self.ops.pause()
         self.go_to_lessons()
@@ -275,8 +298,10 @@ class Navigator:
             if re.search(r"/livebooks/\d+/[0-9a-f-]{20,}$", urlparse(self.page.url).path.rstrip("/")):
                 self.ops.goto(self.page.url.split("?")[0].rstrip("/") + "/lessons")
                 return
-            btn = self.page.locator('button[aria-label="Go to Lessons"], a[href$="/lessons"], '
-                                    'button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")').first
+            btn = self.page.locator(
+                'button[aria-label="Go to Lessons"], a[href$="/lessons"], '
+                'button:has-text("Go to Lessons"), [role="button"]:has-text("Go to Lessons")'
+            ).first
             # the SPA renders late: wait for the button, unless the LU's content shows up first
             if self.ops.poll(lambda: btn.is_visible() or self.inspect().ready, 3000) and btn.is_visible():
                 btn.click()
@@ -305,7 +330,7 @@ class Navigator:
             n, now = len(self.lu_material()), time.monotonic()
             if n != last.get("n"):
                 last["n"], last["since"] = n, now
-            elif n > 200 and now - start > 3 and now - last["since"] > 2.5:   # not a spinner
+            elif n > 200 and now - start > 3 and now - last["since"] > 2.5:  # not a spinner
                 return "quiet"
             return None
 
@@ -328,7 +353,7 @@ class Navigator:
         return v if v.quiz_kind == "question" or v.open_groups else None
 
     def _started_or_confirm(self) -> LUView | None:
-        self.ops.confirm(self.cfg["texts"]["proceed"], "confirm Start")   # "Proceed?" after Start Assignment
+        self.ops.confirm(self.cfg["texts"]["proceed"], "confirm Start")  # "Proceed?" after Start Assignment
         return self._started()
 
     def press_retake(self) -> LUView:
@@ -351,7 +376,7 @@ class Navigator:
 
     def press_start(self) -> LUView:
         """Click Start (quiz or assignment) until a question or an answer box appears."""
-        for _ in range(3):   # some have an instructions screen with a second Start
+        for _ in range(3):  # some have an instructions screen with a second Start
             frame, st, _ = self.quiz.locate(self.page)
             if st["kind"] != "start":
                 break
@@ -375,16 +400,20 @@ class Navigator:
         material = self.lu_material()
         handled = False
 
-        improve = v.quiz_done and self.quiz.can_improve(v.quiz)   # --retake, no full marks, Retake offered
+        improve = v.quiz_done and self.quiz.can_improve(v.quiz)  # --retake, no full marks, Retake offered
         retakes_quiz = "assignment" not in v.quiz.get("retakeText", "").lower()
-        if improve and not (self.enabled["quiz"] if retakes_quiz else
-                            any(self.enabled[k] for k in ("written", "coding", "links"))):
+        if improve and not (
+            self.enabled["quiz"] if retakes_quiz else any(self.enabled[k] for k in ("written", "coding", "links"))
+        ):
             self.runlog.add(ctx, "skipped", "quiz" if retakes_quiz else "", "retake not selected (--only)")
             return
         if improve:
             if self.dry_run and not self.cfg["run"]["dry_run_click_start"]:
-                self.ui.note("[dry-run] submitted without full marks; Retake not clicked "
-                             "(it would replace the recorded attempt)", indent=1)
+                self.ui.note(
+                    "[dry-run] submitted without full marks; Retake not clicked "
+                    "(it would replace the recorded attempt)",
+                    indent=1,
+                )
                 self.runlog.row(event="dry_run", note="retake not clicked", url=self.page.url, **ctx)
                 self.runlog.add(ctx, "preview", lu.type_hint, "retake available (not clicked in dry-run)")
                 self.handled += 1
@@ -398,8 +427,11 @@ class Navigator:
                 self.runlog.add(ctx, "skipped", "quiz", "quiz not selected (--only)")
                 return
             if self.dry_run and not self.cfg["run"]["dry_run_click_start"]:
-                self.ui.note("[dry-run] behind a Start button; not clicking it "
-                             "(set run.dry_run_click_start: true to preview what's behind it)", indent=1)
+                self.ui.note(
+                    "[dry-run] behind a Start button; not clicking it "
+                    "(set run.dry_run_click_start: true to preview what's behind it)",
+                    indent=1,
+                )
                 self.runlog.row(event="dry_run", note="start button not clicked", url=self.page.url, **ctx)
                 self.runlog.add(ctx, "preview", lu.type_hint, "behind a Start button (not clicked in dry-run)")
                 self.handled += 1
@@ -430,10 +462,15 @@ class Navigator:
             if not outcomes:
                 self.runlog.add(ctx, "done", "quiz" if v.quiz_done else "", "already submitted", self.page.url)
             self.runlog.row(event="skip_completed", note="already submitted", url=self.page.url, **ctx)
-            if not lu.completed:   # still open on the Learning Path, so something else is left
+            if not lu.completed:  # still open on the Learning Path, so something else is left
                 self.ui.warn("Already submitted, but the LU is still open: something else is left.", indent=1)
-                self.runlog.add(ctx, "manual", lu.type_hint or "other",
-                                "LU still open after its submission (check what's left)", self.page.url)
+                self.runlog.add(
+                    ctx,
+                    "manual",
+                    lu.type_hint or "other",
+                    "LU still open after its submission (check what's left)",
+                    self.page.url,
+                )
             return
         if lu.type_hint in ("coding", "written"):
             self.ui.warn(f"Looks like a {lu.type_hint} task, but no answer box was recognised.", indent=1)
@@ -448,6 +485,15 @@ class Navigator:
         if out.status == "submitted":
             self.handled += 1
             self.runlog.add(ctx, "submitted", "quiz", out.result, self.page.url, out.items)
+            self.tasks.state.save_submission(
+                ctx["livebook"],
+                ctx["lu"],
+                {
+                    "status": "submitted",
+                    "kind": "quiz",
+                    "result": out.result,
+                },
+            )
         elif out.status == "dry_run":
             self.handled += 1
             self.runlog.add(ctx, "preview", "quiz", "question 1 read (dry-run)", self.page.url, out.items)
@@ -456,6 +502,15 @@ class Navigator:
             self.runlog.add(ctx, "preview", "quiz", "retake available (not clicked in dry-run)", self.page.url)
         elif out.status == "checks_only":
             self.runlog.add(ctx, "done", "quiz", out.result, self.page.url, out.items)
+            self.tasks.state.save_submission(
+                ctx["livebook"],
+                ctx["lu"],
+                {
+                    "status": "done",
+                    "kind": "quiz",
+                    "result": out.result,
+                },
+            )
         elif out.status == "already_done":
             self.runlog.add(ctx, "done", "quiz", "already submitted", self.page.url)
         else:
@@ -465,6 +520,16 @@ class Navigator:
         if o.status in ("submitted", "preview"):
             self.handled += 1
         self.runlog.add(ctx, o.status, o.kind, o.detail, self.page.url, o.items)
+        if o.status in ("submitted", "done"):
+            self.tasks.state.save_submission(
+                ctx["livebook"],
+                ctx["lu"],
+                {
+                    "status": o.status,
+                    "kind": o.kind,
+                    "result": o.detail,
+                },
+            )
 
     # ------------------------------------------------------------------ full run
 
@@ -490,7 +555,7 @@ class Navigator:
                 if e.fatal:
                     raise
                 self._error(ctx, e)
-            except (UnexpectedState, PWError) as e:
+            except Exception as e:
                 self._error(ctx, e)
         if self._limit_reached():
             self.ui.note(f"\nReached --limit {self.limit}.")
@@ -511,8 +576,14 @@ class Navigator:
             if self._limit_reached():
                 return
             ctx = {"livebook": lb["name"], "lu": lu.number, "lu_title": lu.title}
-            retake = self.cfg["run"].get("retake_completed")   # a complete LU may hold a quiz without full marks
-            if lu.completed and self.cfg["run"]["trust_list_completion"] and not self.lu_filter and not retake:
+            retake = self.cfg["run"].get("retake_completed")  # a complete LU may hold a quiz without full marks
+            is_recorded_complete = self.tasks.state.is_completed(lb["name"], lu.number)
+            if (
+                (lu.completed or is_recorded_complete)
+                and self.cfg["run"]["trust_list_completion"]
+                and not self.lu_filter
+                and not retake
+            ):
                 self.runlog.add(ctx, "done", lu.type_hint, "complete on the Learning Path")
                 self.runlog.row(event="skip_completed", note="complete on Learning Path", **ctx)
                 continue
@@ -522,7 +593,7 @@ class Navigator:
                 if e.fatal:
                     raise
                 self._error(ctx, e)
-            except (UnexpectedState, PWError) as e:
+            except Exception as e:
                 self._error(ctx, e)
 
     # ------------------------------------------------------------------ discovery
@@ -569,7 +640,7 @@ class Navigator:
             return self._write_report(report, suggestions, config_path)
 
         todo = [x for x in lus if not x.completed][:max_lus]
-        done = [x for x in lus if x.completed][:2]   # to capture a result screen
+        done = [x for x in lus if x.completed][:2]  # to capture a result screen
         self.ui.say(f"\nVisiting {len(todo)} unfinished and {len(done)} finished LUs (read-only):")
         for lu in todo + done:
             try:
@@ -581,15 +652,42 @@ class Navigator:
             kind = v.describe()
             self.ui.say(f"{lu.number:>5}  {kind}", indent=2)
             st = v.quiz
-            info = {"lu": lu.__dict__, "classified": kind,
-                    "quiz_state": {k: st.get(k) for k in ("kind", "source", "question", "code", "options", "multi",
-                                                         "progress", "start", "retake", "completed", "next",
-                                                         "submitBtn")},
-                    "assignments": [{"submit": g.submit_text, "done": g.done,
-                                     "fields": [{k: getattr(f, k) for k in ("kind", "link_kind", "tag", "editor",
-                                                                            "label", "language", "locked")}
-                                                | {"prompt": f.prompt[:300]} for f in g.fields]}
-                                    for g in (v.tasks.groups if v.tasks else [])]}
+            info = {
+                "lu": lu.__dict__,
+                "classified": kind,
+                "quiz_state": {
+                    k: st.get(k)
+                    for k in (
+                        "kind",
+                        "source",
+                        "question",
+                        "code",
+                        "options",
+                        "multi",
+                        "progress",
+                        "start",
+                        "retake",
+                        "completed",
+                        "next",
+                        "submitBtn",
+                    )
+                },
+                "assignments": [
+                    {
+                        "submit": g.submit_text,
+                        "done": g.done,
+                        "fields": [
+                            {
+                                k: getattr(f, k)
+                                for k in ("kind", "link_kind", "tag", "editor", "label", "language", "locked")
+                            }
+                            | {"prompt": f.prompt[:300]}
+                            for f in g.fields
+                        ],
+                    }
+                    for g in (v.tasks.groups if v.tasks else [])
+                ],
+            }
             if st["kind"] == "question":
                 self.ui.say(f"Q: {st['question'][:90]}", "muted", indent=5)
                 for i, o in enumerate(st["options"]):

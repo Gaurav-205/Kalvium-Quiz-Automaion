@@ -19,16 +19,39 @@ pytest.importorskip("anthropic")
 
 def sse(text: str, stop: str = "end_turn") -> bytes:
     events = [
-        ("message_start", {"type": "message_start", "message": {
-            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [],
-            "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 12, "output_tokens": 1}}}),
-        ("content_block_start", {"type": "content_block_start", "index": 0,
-                                 "content_block": {"type": "text", "text": ""}}),
-        ("content_block_delta", {"type": "content_block_delta", "index": 0,
-                                 "delta": {"type": "text_delta", "text": text}}),
+        (
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-opus-5-5",
+                    "content": [],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 12, "output_tokens": 1},
+                },
+            },
+        ),
+        (
+            "content_block_start",
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        ),
+        (
+            "content_block_delta",
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}},
+        ),
         ("content_block_stop", {"type": "content_block_stop", "index": 0}),
-        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": None},
-                           "usage": {"output_tokens": 5}}),
+        (
+            "message_delta",
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": stop, "stop_sequence": None},
+                "usage": {"output_tokens": 5},
+            },
+        ),
         ("message_stop", {"type": "message_stop"}),
     ]
     return "".join(f"event: {e}\ndata: {json.dumps(d)}\n\n" for e, d in events).encode()
@@ -61,8 +84,12 @@ def claude_server(monkeypatch):
     srv.shutdown()
 
 
-CFG = {"effort": {"quiz": "medium", "written": "high"}, "refusal_fallback": True,
-       "max_output_tokens": 8192, "max_output_tokens_long": 32000}
+CFG = {
+    "effort": {"quiz": "medium", "written": "high"},
+    "refusal_fallback": True,
+    "max_output_tokens": 8192,
+    "max_output_tokens_long": 32000,
+}
 
 
 def test_claude_request_caches_material_sets_effort_and_fallback(claude_server):
@@ -86,7 +113,7 @@ def test_claude_long_work_uses_its_budget_and_no_effort_on_haiku(claude_server):
     seen, _ = claude_server
     ClaudeProvider("claude-opus-5-5", "k", CFG).complete(Request("S", "P", kind="written"))
     assert seen[-1]["body"]["max_tokens"] == 32000 and seen[-1]["body"]["output_config"] == {"effort": "high"}
-    assert len(seen[-1]["body"]["system"]) == 1          # no material, no cache block
+    assert len(seen[-1]["body"]["system"]) == 1  # no material, no cache block
     ClaudeProvider("claude-haiku-4-5", "k", CFG).complete(Request("S", "P", kind="quiz"))
     body = seen[-1]["body"]
     assert "output_config" not in body and "fallbacks" not in body
@@ -111,6 +138,7 @@ def test_gemini_puts_material_in_the_system_instruction(monkeypatch):
 
     p = GeminiProvider.__new__(GeminiProvider)
     from google.genai import types
+
     p._types, p._client, p._models = types, SimpleNamespace(models=Models()), ["gemini-x"]
     p._temperature, p._cfg = 0.2, {"max_output_tokens": 100, "max_output_tokens_long": 900}
     assert p.complete(Request("SYS", "Q", material="LU TEXT", json=True, kind="quiz")) == '{"ok": true}'

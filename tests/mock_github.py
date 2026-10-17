@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class FakeGitHub:
     def __init__(self, login: str = "student"):
         self.login = login
-        self.repos: dict[str, dict] = {}     # name -> {description, private, files, pages, commits}
+        self.repos: dict[str, dict] = {}  # name -> {description, private, files, pages, commits}
         self.lock = threading.Lock()
 
 
@@ -74,11 +74,24 @@ class Handler(BaseHTTPRequestHandler):
                 name = body["name"]
                 if name in self.gh.repos:
                     return self._send(422, {"message": "name already exists on this account"})
-                self.gh.repos[name] = {"name": name, "description": body.get("description", ""),
-                                       "private": body.get("private"), "files": {"README.md": f"# {name}\n"},
-                                       "pending": {}, "commits": ["c0"], "pages": ""}
-                return self._send(201, {"name": name, "html_url": f"https://github.com/{self.gh.login}/{name}",
-                                        "owner": {"login": self.gh.login}, "default_branch": "main"})
+                self.gh.repos[name] = {
+                    "name": name,
+                    "description": body.get("description", ""),
+                    "private": body.get("private"),
+                    "files": {"README.md": f"# {name}\n"},
+                    "pending": {},
+                    "commits": ["c0"],
+                    "pages": "",
+                }
+                return self._send(
+                    201,
+                    {
+                        "name": name,
+                        "html_url": f"https://github.com/{self.gh.login}/{name}",
+                        "owner": {"login": self.gh.login},
+                        "default_branch": "main",
+                    },
+                )
             repo, rest = self._repo(self.path)
             if repo is None:
                 return self._send(404, {"message": "Not Found"})

@@ -9,9 +9,24 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 FIELDS = [
-    "time", "event", "livebook", "lu", "lu_title", "kind", "attempt", "q_no",
-    "question", "code", "options", "multi", "chosen", "chosen_text",
-    "confidence", "result", "note", "url",
+    "time",
+    "event",
+    "livebook",
+    "lu",
+    "lu_title",
+    "kind",
+    "attempt",
+    "q_no",
+    "question",
+    "code",
+    "options",
+    "multi",
+    "chosen",
+    "chosen_text",
+    "confidence",
+    "result",
+    "note",
+    "url",
 ]
 
 
@@ -20,11 +35,11 @@ class Result:
     livebook: str
     lu: str
     title: str
-    status: str            # submitted | preview | done | manual | none | skipped | error
-    kind: str = ""         # quiz | written | coding | links | mixed | ""
+    status: str  # submitted | preview | done | manual | none | skipped | error
+    kind: str = ""  # quiz | written | coding | links | mixed | ""
     detail: str = ""
     url: str = ""
-    items: list[dict] = field(default_factory=list)   # questions / fields, for the HTML report
+    items: list[dict] = field(default_factory=list)  # questions / fields, for the HTML report
 
 
 class RunLog:
@@ -42,10 +57,12 @@ class RunLog:
         self._w.writerow({k: kw.get(k, "") for k in FIELDS})
         self._f.flush()
 
-    def add(self, ctx: dict, status: str, kind: str = "", detail: str = "", url: str = "",
-            items: list[dict] | None = None) -> Result:
-        r = Result(ctx.get("livebook", ""), ctx.get("lu", ""), ctx.get("lu_title", ""), status, kind,
-                   detail, url, items or [])
+    def add(
+        self, ctx: dict, status: str, kind: str = "", detail: str = "", url: str = "", items: list[dict] | None = None
+    ) -> Result:
+        r = Result(
+            ctx.get("livebook", ""), ctx.get("lu", ""), ctx.get("lu_title", ""), status, kind, detail, url, items or []
+        )
         self.results.append(r)
         return r
 

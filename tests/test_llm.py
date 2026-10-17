@@ -19,28 +19,34 @@ from kalbot.llm import (
 )
 
 
-@pytest.mark.parametrize("reply, n, multi, expected", [
-    ('{"answer_indices": [2], "confidence": "high"}', 4, False, ([2], "high")),
-    ('```json\n{"answer_indices": [1], "confidence": "medium"}\n```', 4, False, ([1], "medium")),
-    ('Here you go:\n```\n{"answer_indices": [3, 0], "confidence": "LOW"}\n```', 4, True, ([0, 3], "low")),
-    ('{"answer_indices": 1, "confidence": "high"}', 4, False, ([1], "high")),
-    ('{"answer_indices": [1, 1], "confidence": "whatever"}', 4, False, ([1], "low")),
-])
+@pytest.mark.parametrize(
+    "reply, n, multi, expected",
+    [
+        ('{"answer_indices": [2], "confidence": "high"}', 4, False, ([2], "high")),
+        ('```json\n{"answer_indices": [1], "confidence": "medium"}\n```', 4, False, ([1], "medium")),
+        ('Here you go:\n```\n{"answer_indices": [3, 0], "confidence": "LOW"}\n```', 4, True, ([0, 3], "low")),
+        ('{"answer_indices": 1, "confidence": "high"}', 4, False, ([1], "high")),
+        ('{"answer_indices": [1, 1], "confidence": "whatever"}', 4, False, ([1], "low")),
+    ],
+)
 def test_parse_valid(reply, n, multi, expected):
     a = parse_answer(reply, n, multi)
     assert (a.indices, a.confidence) == expected
 
 
-@pytest.mark.parametrize("reply, n, multi", [
-    ("The answer is B", 4, False),
-    ('{"answer_indices": [4], "confidence": "high"}', 4, False),
-    ('{"answer_indices": [-1], "confidence": "high"}', 4, False),
-    ('{"answer_indices": [0, 1], "confidence": "high"}', 4, False),
-    ('{"answer_indices": [], "confidence": "high"}', 4, True),
-    ('{"answer_indices": ["1"], "confidence": "high"}', 4, False),
-    ('{"answer_indices": [true], "confidence": "high"}', 4, False),
-    ('{"answer_indices": [1,}', 4, False),
-])
+@pytest.mark.parametrize(
+    "reply, n, multi",
+    [
+        ("The answer is B", 4, False),
+        ('{"answer_indices": [4], "confidence": "high"}', 4, False),
+        ('{"answer_indices": [-1], "confidence": "high"}', 4, False),
+        ('{"answer_indices": [0, 1], "confidence": "high"}', 4, False),
+        ('{"answer_indices": [], "confidence": "high"}', 4, True),
+        ('{"answer_indices": ["1"], "confidence": "high"}', 4, False),
+        ('{"answer_indices": [true], "confidence": "high"}', 4, False),
+        ('{"answer_indices": [1,}', 4, False),
+    ],
+)
 def test_parse_invalid(reply, n, multi):
     with pytest.raises(ValueError):
         parse_answer(reply, n, multi)
@@ -108,7 +114,7 @@ def test_quiz_prompt_and_material():
     assert "MORE THAN ONE" in p and "earlier attempt chose [0]" in p and '"answer_indices"' in p
     s = Scripted(['{"answer_indices": [0], "confidence": "high"}'])
     make_llm(s, max_context_chars=10).choose(q, material="0123456789-cut-here")
-    assert s.requests[0].material == "0123456789"           # truncated, sent as cacheable context
+    assert s.requests[0].material == "0123456789"  # truncated, sent as cacheable context
     s = Scripted(['{"answer_indices": [0], "confidence": "high"}'])
     make_llm(s, include_lu_content=False).choose(q, material="secret")
     assert s.requests[0].material == ""
@@ -121,8 +127,6 @@ def test_missing_key_is_reported_without_value(monkeypatch):
     with pytest.raises(LLMError) as e:
         make_provider({"provider": "gemini", "models": {"gemini": "m"}, "api_key_env": {"gemini": "GEMINI_API_KEY"}})
     assert "GEMINI_API_KEY" in str(e.value) and e.value.fatal
-
-
 
 
 # --------------------------------------------------------------------------- written / code / project
@@ -147,8 +151,12 @@ def test_short_answers_fit_on_one_line():
 
 
 def test_code_uses_longest_fence_and_feeds_back_test_output():
-    p = Scripted(["```py\nx\n```\nand the full one:\n```python\ndef f():\n    return 1\n```",
-                  "```python\ndef f():\n    return 2\n```"])
+    p = Scripted(
+        [
+            "```py\nx\n```\nand the full one:\n```python\ndef f():\n    return 1\n```",
+            "```python\ndef f():\n    return 2\n```",
+        ]
+    )
     ai = make_llm(p)
     assert ai.code(CodeSpec("f returns 1", "python", "def f():\n    pass\n")) == "def f():\n    return 1\n"
     ai.code(CodeSpec("f returns 2"), previous="def f():\n    return 1\n", feedback="1/2 test cases passed")
@@ -162,8 +170,11 @@ def test_clean_text_and_extract_code():
 
 
 def test_parse_project_validates_paths_and_names():
-    good = {"repo_name": "My Cool App!", "static_site": True,
-            "files": [{"path": "./index.html", "content": "<h1>x</h1>"}, {"path": ".gitignore", "content": "x"}]}
+    good = {
+        "repo_name": "My Cool App!",
+        "static_site": True,
+        "files": [{"path": "./index.html", "content": "<h1>x</h1>"}, {"path": ".gitignore", "content": "x"}],
+    }
     pr = parse_project(json.dumps(good), "fallback")
     assert pr.repo_name == "my-cool-app" and pr.static_site and set(pr.files) == {"index.html", ".gitignore"}
     for bad in ("../etc/passwd", "/abs.txt", ".git/config"):

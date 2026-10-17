@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ TASK_KINDS = ("quiz", "written", "coding", "links")
 def parse_args(argv=None) -> argparse.Namespace:
     argv = list(sys.argv[1:] if argv is None else argv)
     for flag, cmd in (("--discover", "discover"), ("--login", "login"), ("--doctor", "doctor")):
-        if flag in argv:   # flags from the old `python main.py --discover`
+        if flag in argv:  # flags from the old `python main.py --discover`
             argv.remove(flag)
             argv.insert(0, cmd)
     if not argv or (argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "-V", "--version")):
@@ -44,8 +45,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     common.add_argument("--headless", action="store_true", help="run Chrome without a window")
 
     ap = argparse.ArgumentParser(
-        prog="kalbot", epilog=EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Complete unfinished Kalvium quizzes, written, coding and link assignments with an LLM.")
+        prog="kalbot",
+        epilog=EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Complete unfinished Kalvium quizzes, written, coding and link assignments with an LLM.",
+    )
     ap.add_argument("-V", "--version", action="version", version=f"kalbot {__version__}")
     sub = ap.add_subparsers(dest="command", metavar="command")
     run = sub.add_parser("run", parents=[common], help="complete unfinished work (default)")
@@ -54,8 +58,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     run.add_argument("--livebook", help="only livebooks whose name contains this text")
     run.add_argument("--lu", help='only this LU number, e.g. "1.2"')
     run.add_argument("--only", help=f"comma-separated kinds to do: {','.join(TASK_KINDS)}")
-    run.add_argument("--retake", action="store_true",
-                     help="also retake submitted quizzes that don't have full marks (opens completed LUs too)")
+    run.add_argument(
+        "--retake",
+        action="store_true",
+        help="also retake submitted quizzes that don't have full marks (opens completed LUs too)",
+    )
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--auto", action="store_true", help="don't stop to review written/coding/link drafts")
     mode.add_argument("--review", action="store_true", help="always stop to review drafts (overrides run.review)")
@@ -66,11 +73,50 @@ def parse_args(argv=None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+class RedactingFilter(logging.Filter):
+    """Masks API keys and authentication tokens in log records so secrets are never exposed."""
+
+    PATTERNS = [
+        re.compile(r"AIza[0-9A-Za-z-_]{35}"),
+        re.compile(r"sk-ant-[0-9A-Za-z-_]{20,}"),
+        re.compile(r"ghp_[0-9A-Za-z]{36}"),
+        re.compile(r"github_pat_[0-9A-Za-z_]{60,}"),
+        re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/-]+=*", re.I),
+        re.compile(r"((?:api[_-]?key|token)\s*[:=]\s*['\"]?)[A-Za-z0-9-_]{12,}(['\"]?)", re.I),
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            for pat in self.PATTERNS:
+                record.msg = pat.sub(r"[REDACTED_SECRET]", record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                clean_dict = dict(record.args)
+                for k, v in clean_dict.items():
+                    if isinstance(v, str):
+                        for pat in self.PATTERNS:
+                            v = pat.sub(r"[REDACTED_SECRET]", v)
+                        clean_dict[k] = v
+                record.args = clean_dict
+            elif isinstance(record.args, tuple):
+                new_args = []
+                for a in record.args:
+                    if isinstance(a, str):
+                        val = a
+                        for pat in self.PATTERNS:
+                            val = pat.sub(r"[REDACTED_SECRET]", val)
+                        new_args.append(val)
+                    else:
+                        new_args.append(a)
+                record.args = tuple(new_args)
+        return True
+
+
 def setup_logging(log_path: Path, console) -> None:
     from rich.logging import RichHandler
 
     root = logging.getLogger()
-    for h in list(root.handlers):   # repeated runs in one process (tests) must not stack handlers
+    for h in list(root.handlers):  # repeated runs in one process (tests) must not stack handlers
         if getattr(h, "_kalbot", False):
             root.removeHandler(h)
             h.close()
@@ -78,8 +124,10 @@ def setup_logging(log_path: Path, console) -> None:
     fh = logging.FileHandler(log_path, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     con = RichHandler(console=console, show_time=False, show_path=False, markup=False, level=logging.WARNING)
+    redactor = RedactingFilter()
     for h in (fh, con):
         h._kalbot = True
+        h.addFilter(redactor)
         root.addHandler(h)
     for name in ("httpx", "httpx2", "httpcore", "google_genai", "anthropic", "urllib3"):
         logging.getLogger(name).setLevel(logging.ERROR)
@@ -105,7 +153,7 @@ def task_filter(cfg: dict, only: str | None) -> dict[str, bool]:
 
 
 def main(argv=None) -> int:
-    for stream in (sys.stdout, sys.stderr):   # never crash on odd characters in a Windows console
+    for stream in (sys.stdout, sys.stderr):  # never crash on odd characters in a Windows console
         try:
             stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
         except (AttributeError, ValueError):
@@ -126,6 +174,7 @@ def main(argv=None) -> int:
             ui.warn(w)
         if args.command == "login":
             from .browser import manual_login
+
             return manual_login(cfg, ui)
         if args.command == "doctor":
             return doctor(cfg, ui, online=args.online)
@@ -178,14 +227,19 @@ def run(cfg: dict, args, ui) -> int:
     github = GitHub.from_config(cfg) if cfg["github"].get("auto_create") else None
     meta = [("Mode", "DISCOVER (read-only)" if discover else "DRY-RUN (nothing is submitted)" if dry else "LIVE")]
     if not discover:
-        meta += [("LLM", f"{prov} · {cfg['llm']['models'][prov]}"),
-                 ("Doing", ", ".join(k for k in TASK_KINDS if enabled[k]) or "nothing"),
-                 ("Review", "before each written/coding/link submission" if review else "off (--auto)"),
-                 ("Limit", str(limit or "none")),
-                 ("Links", f"{len(linkbook.entries)} LU{'s' * (len(linkbook.entries) != 1)} in "
-                  f"{cfg['links']['file']}" if linkbook.entries
-                  else f"none yet ({cfg['links']['file']})"),
-                 ("GitHub", "creates repos for repo-link tasks" if github else "off (no GITHUB_TOKEN)")]
+        meta += [
+            ("LLM", f"{prov} · {cfg['llm']['models'][prov]}"),
+            ("Doing", ", ".join(k for k in TASK_KINDS if enabled[k]) or "nothing"),
+            ("Review", "before each written/coding/link submission" if review else "off (--auto)"),
+            ("Limit", str(limit or "none")),
+            (
+                "Links",
+                f"{len(linkbook.entries)} LU{'s' * (len(linkbook.entries) != 1)} in {cfg['links']['file']}"
+                if linkbook.entries
+                else f"none yet ({cfg['links']['file']})",
+            ),
+            ("GitHub", "creates repos for repo-link tasks" if github else "off (no GITHUB_TOKEN)"),
+        ]
     meta.append(("Output", str(run_dir)))
     ui.banner(f"kalbot {__version__}", meta)
 
@@ -196,17 +250,43 @@ def run(cfg: dict, args, ui) -> int:
             context = launch_browser(p, cfg)
         except PWError as e:
             ui.error(f"Could not start Chrome: {first_line(e)}")
-            ui.note("Is another kalbot window still open (profile in use)? Is Chrome installed? "
-                    "Try: python -m playwright install chrome")
+            ui.note(
+                "Is another kalbot window still open (profile in use)? Is Chrome installed? "
+                "Try: python -m playwright install chrome"
+            )
             runlog.close()
             return 2
         page = context.pages[0] if context.pages else context.new_page()
         ops = PageOps(cfg, page)
         quiz = QuizSolver(cfg, ops, llm, runlog, ui, run_dir / "snapshots", dry)
-        tasks = TaskSolver(cfg, ops, llm, runlog, ui, linkbook=linkbook, state=State(path(cfg, "state")),
-                           github=github, run_dir=run_dir, dry_run=dry, review=review, enabled=enabled)
-        nav = Navigator(cfg, ops, quiz, tasks, runlog, ui, run_dir=run_dir, dry_run=dry, limit=limit,
-                        livebook=getattr(args, "livebook", None), lu=getattr(args, "lu", None), enabled=enabled)
+        tasks = TaskSolver(
+            cfg,
+            ops,
+            llm,
+            runlog,
+            ui,
+            linkbook=linkbook,
+            state=State(path(cfg, "state")),
+            github=github,
+            run_dir=run_dir,
+            dry_run=dry,
+            review=review,
+            enabled=enabled,
+        )
+        nav = Navigator(
+            cfg,
+            ops,
+            quiz,
+            tasks,
+            runlog,
+            ui,
+            run_dir=run_dir,
+            dry_run=dry,
+            limit=limit,
+            livebook=getattr(args, "livebook", None),
+            lu=getattr(args, "lu", None),
+            enabled=enabled,
+        )
         try:
             nav.wait_for_login()
             if discover:
@@ -245,7 +325,7 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
     for name in ("httpx", "httpx2", "httpcore", "google_genai", "anthropic", "urllib3"):
         logging.getLogger(name).setLevel(logging.ERROR)
 
-    checks: list[tuple[str, str, str]] = []   # (ok|warn|fail, what, detail)
+    checks: list[tuple[str, str, str]] = []  # (ok|warn|fail, what, detail)
 
     def add(state: str, what: str, detail: str = "") -> None:
         checks.append((state, what, detail))
@@ -255,16 +335,21 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
     sdk = {"gemini": ("google.genai", "google-genai"), "claude": ("anthropic", "anthropic")}.get(prov)
     for mod, pkg in [("playwright", "playwright"), ("yaml", "PyYAML"), ("rich", "rich")] + ([sdk] if sdk else []):
         found = importlib.util.find_spec(mod.split(".")[0]) is not None and (
-            "." not in mod or importlib.util.find_spec(mod) is not None)
+            "." not in mod or importlib.util.find_spec(mod) is not None
+        )
         add("ok" if found else "fail", f"package {pkg}", "installed" if found else "missing: pip install -e .")
 
     env = cfg["llm"]["api_key_env"].get(prov, "")
     key = get_env(env) if env else ""
-    add("ok" if key else "fail", f"{prov} API key", f"{env} is set ({len(key)} chars)" if key else
-        f"{env} is not set: add it to .env (see .env.example)")
+    add(
+        "ok" if key else "fail",
+        f"{prov} API key",
+        f"{env} is set ({len(key)} chars)" if key else f"{env} is not set: add it to .env (see .env.example)",
+    )
 
     if key and online:
         from .llm import LLM, Request, make_provider
+
         try:
             reply = LLM(make_provider(cfg["llm"]), cfg).ask(Request("Reply with the single word OK.", "Ready?"))
             add("ok", f"{prov} live call", f"{cfg['llm']['models'][prov]} replied {reply.strip()[:20]!r}")
@@ -272,6 +357,7 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
             add("fail", f"{prov} live call", str(e)[:160])
 
     from playwright.sync_api import sync_playwright
+
     b = cfg["browser"]
     try:
         with sync_playwright() as p:
@@ -287,10 +373,14 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
         add("fail", "browser", f"{str(e).splitlines()[0][:120]} -> python -m playwright install chrome")
 
     profile = path(cfg, "profile", create=False)
-    add("ok" if profile.exists() else "warn", "login profile",
-        str(profile) if profile.exists() else "not created yet: run `kalbot discover` and log in once")
+    add(
+        "ok" if profile.exists() else "warn",
+        "login profile",
+        str(profile) if profile.exists() else "not created yet: run `kalbot discover` and log in once",
+    )
 
     from .github import GitHub, GitHubError
+
     gh = GitHub.from_config(cfg)
     tok = cfg["github"]["token_env"]
     if not gh:
@@ -305,14 +395,19 @@ def doctor(cfg: dict, ui, online: bool = False) -> int:
         add("ok", "GitHub token", f"{tok} is set (use --online to test it)")
 
     from .links import LinkBook
+
     lf = cfg["_meta"]["home"] / cfg["links"]["file"]
     book = LinkBook.load(lf)
     if book.problems:
         add("warn", "links file", "; ".join(book.problems)[:200])
     else:
-        add("ok" if lf.exists() else "warn", "links file",
-            f"{len(book.entries)} entries in {lf.name}" if lf.exists() else
-            f"no {lf.name} yet: copy submissions.example.yaml when you have video/repo links")
+        add(
+            "ok" if lf.exists() else "warn",
+            "links file",
+            f"{len(book.entries)} entries in {lf.name}"
+            if lf.exists()
+            else f"no {lf.name} yet: copy submissions.example.yaml when you have video/repo links",
+        )
     for w in cfg["_meta"]["warnings"]:
         add("warn", "config", w)
 

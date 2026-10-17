@@ -42,8 +42,15 @@ def env(tmp_path_factory, browser):
         "llm": {"provider": "fake", "models": {"fake": "fake-model"}, "min_seconds_between_calls": 0},
         "browser": {**browser, "headless": True},
         "delays": {"action_min_s": 0.05, "action_max_s": 0.1},
-        "timeouts": {"settle_ms": 1500, "lu_settle_ms": 3000, "list_ms": 8000, "question_change_ms": 8000,
-                     "result_ms": 8000, "task_ms": 8000, "run_output_ms": 8000},
+        "timeouts": {
+            "settle_ms": 1500,
+            "lu_settle_ms": 3000,
+            "list_ms": 8000,
+            "question_change_ms": 8000,
+            "result_ms": 8000,
+            "task_ms": 8000,
+            "run_output_ms": 8000,
+        },
         "run": {"login_timeout_minutes": 1},
         "github": {"api_url": f"http://127.0.0.1:{gsrv.server_port}"},
         "links": {"wait_for_live_site_s": 0},
@@ -92,15 +99,22 @@ def test_1_login_and_discover(env, capsys):
     out = capsys.readouterr().out
     assert "NOT LOGGED IN" in out and "Login detected" in out
     assert "Introduction to Philosophy" in out and "Data Structures" in out and "Web Development" in out
-    for line in ("1.1  quiz already submitted", "1.2  behind a Start button", "1.3  assignment: written (1 box)",
-                 "2.1  quiz question visible", "2.2  assignment: links: pr, video",
-                 "2.3  quiz question visible", "2.4  no quiz or assignment found", "2.5  behind a Start button"):
+    for line in (
+        "1.1  quiz already submitted",
+        "1.2  behind a Start button",
+        "1.3  assignment: written (1 box)",
+        "2.1  quiz question visible",
+        "2.2  assignment: links: pr, video",
+        "2.3  quiz question visible",
+        "2.4  no quiz or assignment found",
+        "2.5  behind a Start button",
+    ):
         assert line in out, line
     assert state(env) == before, "discovery must not submit or run anything"
     cfg = yaml.safe_load(Path(env["config"]).read_text(encoding="utf-8"))
     assert cfg["selectors"]["livebook_card"] == '[data-testid="livebook-card"]'
     assert cfg["selectors"]["lu_row"] == '[data-testid="lu-item"]'
-    assert "quiz_option" not in cfg["selectors"]      # printed only, never auto-written
+    assert "quiz_option" not in cfg["selectors"]  # printed only, never auto-written
     snaps = latest_run(env) / "snapshots"
     assert list(snaps.glob("*_discovery_report.json")) and list(snaps.glob("*learning_path.png"))
     report = json.loads(next(snaps.glob("*_discovery_report.json")).read_text(encoding="utf-8"))
@@ -112,7 +126,7 @@ def test_2_dry_run_stops_at_start_button(env, capsys):
     before = state(env)
     assert run(env, "--dry-run", "--limit", "1") == 0
     out = capsys.readouterr().out
-    assert "Logged in." in out and "NOT LOGGED IN" not in out      # session persisted
+    assert "Logged in." in out and "NOT LOGGED IN" not in out  # session persisted
     assert "behind a Start button; not clicking it" in out
     assert "Previewed: 1" in out
     assert state(env) == before
@@ -138,7 +152,7 @@ def test_4_dry_run_can_start_quiz_and_read_code(env, capsys):
     before = state(env)
     assert cli.main(["--config", str(p), "--dry-run", "--livebook", "data", "--lu", "1.1"]) == 0
     rows = [r for r in latest_csv(env) if r["event"] == "dry_run_question"]
-    assert rows and rows[0]["question"] == QUIZZES[("2506", "11")][0]["text"]   # quiz inside an iframe
+    assert rows and rows[0]["question"] == QUIZZES[("2506", "11")][0]["text"]  # quiz inside an iframe
     assert state(env) == before
 
 
@@ -164,7 +178,7 @@ def test_6_review_waits_without_a_terminal(env, capsys):
 def test_7_limit_1_real_quiz_with_retake(env, capsys):
     assert run(env, "--limit", "1") == 0
     out = capsys.readouterr().out
-    assert submitted_scores(env, "2505/12") == [2, 5]        # failed once, retook, passed
+    assert submitted_scores(env, "2505/12") == [2, 5]  # failed once, retook, passed
     rows = latest_csv(env)
     qs = [r for r in rows if r["event"] == "question"]
     assert len(qs) == 10
@@ -183,12 +197,12 @@ def test_8_full_run(env, capsys):
     out = capsys.readouterr().out
     s = state(env)
     # quizzes
-    assert submitted_scores(env, "2505/21") == [5]      # ARIA radios, rating widget ignored, JSON retry
-    assert submitted_scores(env, "2505/23") == [5]      # plain <div> options behind a Quiz tab
-    assert submitted_scores(env, "2506/11") == [5]      # quiz in an iframe
-    assert submitted_scores(env, "2506/12") == []       # already submitted (4/5): untouched without --retake
-    assert submitted_scores(env, "2505/12") == [2, 5]   # done in test 7: untouched
-    assert submitted_scores(env, "2506/14") == [5]      # check questions in the lesson, then the graded quiz
+    assert submitted_scores(env, "2505/21") == [5]  # ARIA radios, rating widget ignored, JSON retry
+    assert submitted_scores(env, "2505/23") == [5]  # plain <div> options behind a Quiz tab
+    assert submitted_scores(env, "2506/11") == [5]  # quiz in an iframe
+    assert submitted_scores(env, "2506/12") == []  # already submitted (4/5): untouched without --retake
+    assert submitted_scores(env, "2505/12") == [2, 5]  # done in test 7: untouched
+    assert submitted_scores(env, "2506/14") == [5]  # check questions in the lesson, then the graded quiz
     assert "Finished 2 check question(s)" in out
     tasks = s["tasks"]
     # the portal's assignment workspace: Start -> Proceed -> Markdown editor -> Save -> review checklist -> Submit
@@ -210,9 +224,11 @@ def test_8_full_run(env, capsys):
     # links: new repo + GitHub Pages + the user's video link
     repo = env["gh"].repos["portfolio-website"]
     assert "index.html" in repo["files"] and repo["pages"] and not repo["private"]
-    assert tasks["2507/14"] == {"repo": "https://github.com/student/portfolio-website",
-                                "live": "https://student.github.io/portfolio-website/",
-                                "video": "https://www.loom.com/share/0123456789abcdef"}
+    assert tasks["2507/14"] == {
+        "repo": "https://github.com/student/portfolio-website",
+        "live": "https://student.github.io/portfolio-website/",
+        "video": "https://www.loom.com/share/0123456789abcdef",
+    }
     assert tasks["2507/15"]["short"] == "HyperText Markup Language"
     # never half-submitted: a link kalbot doesn't have (2.2 has its PR link from the "*" entry, no video)
     assert "2505/22" not in tasks and "2507/16" not in tasks
@@ -234,16 +250,16 @@ def test_9_retake_improves_a_submitted_quiz(env, capsys):
     assert state(env) == before, "a dry run must not click Retake (it replaces the recorded attempt)"
     assert run(env, "--only", "written", "--retake", "--livebook", "data", "--lu", "1.2") == 0
     assert state(env) == before, "--only written must not retake a quiz"
-    assert run(env, "--retake", "--livebook", "data", "--lu", "1.2") == 0   # 4/5 before; Retake asks "Proceed"
+    assert run(env, "--retake", "--livebook", "data", "--lu", "1.2") == 0  # 4/5 before; Retake asks "Proceed"
     assert submitted_scores(env, "2506/12") == [5]
-    assert run(env, "--retake", "--livebook", "data", "--lu", "1.3") == 0   # already 5/5: left alone
+    assert run(env, "--retake", "--livebook", "data", "--lu", "1.3") == 0  # already 5/5: left alone
     assert submitted_scores(env, "2506/13") == []
     assert "full marks" in capsys.readouterr().out
 
 
 def test_9b_retake_assignment_writes_a_new_answer(env, capsys):
     old = state(env)["tasks"]["2505/25"]["answer"]
-    assert run(env, "--auto", "--livebook", "philosophy", "--lu", "2.5") == 0    # Best Score 9/10, no --retake
+    assert run(env, "--auto", "--livebook", "philosophy", "--lu", "2.5") == 0  # Best Score 9/10, no --retake
     assert state(env)["tasks"]["2505/25"]["answer"] == old and "Retake not" not in capsys.readouterr().out
     assert run(env, "--auto", "--retake", "--livebook", "philosophy", "--lu", "2.5") == 0
     fields = [r for r in latest_csv(env) if r["event"] == "task_field"]

@@ -26,20 +26,49 @@ from .ui import QuitRun, ReviewItem, short
 log = logging.getLogger("kalbot.tasks")
 
 TASK_KIND = {
-    "text": "written", "short": "written", "code": "coding", "link": "links", "file": "written", "other": "written"
+    "text": "written",
+    "short": "written",
+    "code": "coding",
+    "link": "links",
+    "file": "written",
+    "other": "written",
 }
 QUESTION_LIKE = re.compile(r"\?|\b(answer|output|result|explain|what|why|how|which|describe|define)\b", re.I)
-CODE_WORDS = re.compile(r"\b(code|program|function|implement|algorithm|"
-                        r"write a (python|java|c\+\+|javascript|c) )", re.I)
+CODE_WORDS = re.compile(
+    r"\b(code|program|function|implement|algorithm|"
+    r"write a (python|java|c\+\+|javascript|c) )",
+    re.I,
+)
 # fields the portal names by what they hold (input#pr, input#video)
-NAMED_LINKS = {re.compile(r"(?i)pr|pr[-_]?(link|url)|pull[-_]?request([-_]?(link|url))?"): "pr",
-               re.compile(r"(?i)video([-_]?(link|url))?|demo[-_]?video"): "video"}
+NAMED_LINKS = {
+    re.compile(r"(?i)pr|pr[-_]?(link|url)|pull[-_]?request([-_]?(link|url))?"): "pr",
+    re.compile(r"(?i)video([-_]?(link|url))?|demo[-_]?video"): "video",
+}
 # "Write a program that...", "Implement the function..." (not "Explain what this program does")
-CODE_TASK = re.compile(r"\b(write|implement|complete|code|solve)\b[^.\n]{0,40}\b(function|program|code|class|"
-                       r"method|solution|script|query)\b", re.I)
-SUFFIX = {"python": ".py", "python3": ".py", "java": ".java", "javascript": ".js", "js": ".js",
-          "typescript": ".ts", "c++": ".cpp", "cpp": ".cpp", "c": ".c", "go": ".go", "rust": ".rs",
-          "ruby": ".rb", "php": ".php", "sql": ".sql", "html": ".html", "css": ".css", "kotlin": ".kt"}
+CODE_TASK = re.compile(
+    r"\b(write|implement|complete|code|solve)\b[^.\n]{0,40}\b(function|program|code|class|"
+    r"method|solution|script|query)\b",
+    re.I,
+)
+SUFFIX = {
+    "python": ".py",
+    "python3": ".py",
+    "java": ".java",
+    "javascript": ".js",
+    "js": ".js",
+    "typescript": ".ts",
+    "c++": ".cpp",
+    "cpp": ".cpp",
+    "c": ".c",
+    "go": ".go",
+    "rust": ".rs",
+    "ruby": ".rb",
+    "php": ".php",
+    "sql": ".sql",
+    "html": ".html",
+    "css": ".css",
+    "kotlin": ".kt",
+}
 
 
 class Manual(Exception):
@@ -49,7 +78,7 @@ class Manual(Exception):
 @dataclass
 class Field:
     index: int
-    tag: str                 # editor | rich | textarea | input
+    tag: str  # editor | rich | textarea | input
     type: str
     editor: str
     api: bool
@@ -64,11 +93,11 @@ class Field:
     language: str
     submit: int
     run: int
-    kind: str = ""           # text | short | code | link | other (a box kalbot won't guess, e.g. "Your name")
-    link_kind: str = ""      # github | pr | live | video | link
-    md: bool = False         # a Markdown editor (monospace, but never a code box)
-    elId: str = ""           # the element's id and name ("pr", "video")
-    nth: int = 0             # position among boxes with the same tag + label (set by _read)
+    kind: str = ""  # text | short | code | link | other (a box kalbot won't guess, e.g. "Your name")
+    link_kind: str = ""  # github | pr | live | video | link
+    md: bool = False  # a Markdown editor (monospace, but never a code box)
+    elId: str = ""  # the element's id and name ("pr", "video")
+    nth: int = 0  # position among boxes with the same tag + label (set by _read)
 
     @property
     def key(self) -> tuple:
@@ -81,7 +110,7 @@ class Field:
             name = linkmod.KIND_NAMES.get(self.link_kind, "link")
             return f"{name[0].upper()}{name[1:]} link"
         label = self.label.split(" | ")[0].strip()
-        if label and (" " in label or not self.prompt.strip()):   # not a bare name="code" attribute
+        if label and (" " in label or not self.prompt.strip()):  # not a bare name="code" attribute
             return short(label, 70)
         lines = [ln.strip() for ln in self.prompt.splitlines() if ln.strip()]
         return short(max(lines, key=len) if lines else label or self.kind, 70)
@@ -90,6 +119,7 @@ class Field:
 @dataclass
 class Group:
     """One Submit button and the boxes that belong to it."""
+
     submit: int
     submit_text: str
     fields: list[Field]
@@ -125,7 +155,7 @@ class Group:
 class TaskView:
     frame: object
     groups: list[Group]
-    done: bool               # the page says the assignment was handed in
+    done: bool  # the page says the assignment was handed in
 
     @property
     def open(self) -> list[Group]:
@@ -144,7 +174,7 @@ class Draft:
 
 @dataclass
 class TaskOutcome:
-    status: str              # submitted | preview | manual | skipped | done
+    status: str  # submitted | preview | manual | skipped | done
     kind: str
     detail: str = ""
     items: list[dict] = field(default_factory=list)
@@ -159,12 +189,18 @@ def word_limits(texts: list[str], default: tuple[int, int]) -> tuple[int, int]:
         if m:
             a, b = sorted((int(m[1]), int(m[2])))
             return a, b
-        lo = re.search(rf"(?:minimum|min\.?|at least|no fewer than|not less than)\s*(?:of\s*)?{num}\s*words", t) or \
-            re.search(rf"{num}\s*words?\s*(?:minimum|min\b|or more)", t)
-        hi = re.search(rf"(?:maximum|max\.?|at most|up to|not exceed(?:ing)?|no more than|within|limit(?:ed)? "
-                       rf"(?:of|to))\s*(?:of\s*)?{num}\s*words", t) or \
-            re.search(rf"{num}\s*words?\s*(?:maximum|max\b|or less|or fewer)", t) or \
-            re.search(rf"word limit\s*(?:of|is|:|-)?\s*{num}", t)
+        lo = re.search(
+            rf"(?:minimum|min\.?|at least|no fewer than|not less than)\s*(?:of\s*)?{num}\s*words", t
+        ) or re.search(rf"{num}\s*words?\s*(?:minimum|min\b|or more)", t)
+        hi = (
+            re.search(
+                rf"(?:maximum|max\.?|at most|up to|not exceed(?:ing)?|no more than|within|limit(?:ed)? "
+                rf"(?:of|to))\s*(?:of\s*)?{num}\s*words",
+                t,
+            )
+            or re.search(rf"{num}\s*words?\s*(?:maximum|max\b|or less|or fewer)", t)
+            or re.search(rf"word limit\s*(?:of|is|:|-)?\s*{num}", t)
+        )
         if lo and hi:
             a, b = sorted((int(lo[1]), int(hi[1])))
             return a, b
@@ -184,14 +220,15 @@ def word_limits(texts: list[str], default: tuple[int, int]) -> tuple[int, int]:
 def problem_statement(material: str, size: int = 4000) -> str:
     """The assignment brief, from its 'Problem Statement' heading on (portal pages put it there)."""
     i = (material or "").lower().find("problem statement")
-    return material[i:i + size] if i >= 0 else ""
+    return material[i : i + size] if i >= 0 else ""
 
 
 def run_verdict(text: str, patterns: dict) -> str:
     """pass | fail | unknown from the text a Run/Test button produced."""
     frac = r"(\d+)\s*(?:/|out of|of)\s*(\d+)"
-    m = re.search(frac + r"\s*(?:test ?cases?|tests?|cases?)?\s*(?:passed|correct)", text, re.I) \
-        or re.search(r"passed\s*:?\s*" + frac, text, re.I)
+    m = re.search(frac + r"\s*(?:test ?cases?|tests?|cases?)?\s*(?:passed|correct)", text, re.I) or re.search(
+        r"passed\s*:?\s*" + frac, text, re.I
+    )
     if m:
         return "pass" if int(m[1]) == int(m[2]) and int(m[2]) > 0 else "fail"
     if any(re.search(p, text, re.I) for p in patterns["run_fail"]):
@@ -217,9 +254,22 @@ def _alnum(s: str) -> str:
 
 
 class TaskSolver:
-    def __init__(self, cfg: dict, ops: PageOps, llm: LLM | None, runlog, ui, *, linkbook: linkmod.LinkBook,
-                 state: linkmod.State, github: GitHub | None, run_dir: Path, dry_run: bool, review: bool,
-                 enabled: dict[str, bool]):
+    def __init__(
+        self,
+        cfg: dict,
+        ops: PageOps,
+        llm: LLM | None,
+        runlog,
+        ui,
+        *,
+        linkbook: linkmod.LinkBook,
+        state: linkmod.State,
+        github: GitHub | None,
+        run_dir: Path,
+        dry_run: bool,
+        review: bool,
+        enabled: dict[str, bool],
+    ):
         self.cfg = cfg
         self.ops = ops
         self.llm = llm
@@ -231,7 +281,7 @@ class TaskSolver:
         self.dry_run = dry_run
         self.review_on = review
         self.enabled = enabled
-        self.fresh = False   # set per assignment: just retaken, so old answers in the boxes are ignored
+        self.fresh = False  # set per assignment: just retaken, so old answers in the boxes are ignored
         self.pat = cfg["patterns"]
         self.t = cfg["timeouts"]
         self.run_dir = run_dir
@@ -245,11 +295,14 @@ class TaskSolver:
             f.kind = "file"
             return f
         named = next((NAMED_LINKS[k] for t in (f.elId or "").split() for k in NAMED_LINKS if k.fullmatch(t)), "")
-        if f.tag in ("input", "textarea") and named:   # the portal's own field ids: input#pr, input#video
+        if f.tag in ("input", "textarea") and named:  # the portal's own field ids: input#pr, input#video
             f.kind, f.link_kind = "link", named
             return f
-        if f.tag == "editor" or (f.tag == "textarea" and not f.md and (
-                f.codeHint or (f.mono and (CODE_WORDS.search(f.label) or CODE_TASK.search(f.prompt[-400:]))))):
+        if f.tag == "editor" or (
+            f.tag == "textarea"
+            and not f.md
+            and (f.codeHint or (f.mono and (CODE_WORDS.search(f.label) or CODE_TASK.search(f.prompt[-400:]))))
+        ):
             f.kind = "code"
         elif f.tag == "input":
             if linkmod.is_link_field(f.label, f.prompt, f.type, self.pat):
@@ -257,7 +310,7 @@ class TaskSolver:
             else:
                 f.kind = "short" if QUESTION_LIKE.search(f"{f.label}\n{f.prompt[-300:]}") else "other"
         elif f.tag == "textarea" and (f.maxlength or 0) <= 500 and linkmod.STRONG_LINK.search(f.label):
-            f.kind = "link"   # "Paste your GitHub link" as a textarea
+            f.kind = "link"  # "Paste your GitHub link" as a textarea
         else:
             f.kind = "text"
         if f.kind == "link":
@@ -303,7 +356,7 @@ class TaskSolver:
 
     def _refresh(self, frame, keys: tuple) -> Group:
         got = self._read(frame)
-        for g in (got[0] if got else []):
+        for g in got[0] if got else []:
             if g.keys == keys:
                 return g
         raise UnexpectedState("the assignment changed on the page while it was being filled")
@@ -313,7 +366,7 @@ class TaskSolver:
     def run(self, page, ctx: dict, material: str, view: TaskView, fresh: bool = False) -> list[TaskOutcome]:
         outcomes: list[TaskOutcome] = []
         seen: set[tuple] = set()
-        for _ in range(8):   # one assignment at a time; the page may re-render after each Submit
+        for _ in range(8):  # one assignment at a time; the page may re-render after each Submit
             g = next((g for g in view.groups if g.keys not in seen), None)
             if g is None:
                 break
@@ -356,11 +409,33 @@ class TaskSolver:
         detail = self._detail(res, tests)
         (self.ui.ok if not res.get("unconfirmed") else self.ui.warn)(f"Submitted: {detail}", indent=1)
         for d in drafts:
-            self.runlog.row(event="task_field", kind=TASK_KIND[d.field.kind], question=d.field.title,
-                            chosen_text=d.value, note=d.source, url=page.url, **ctx)
-        self.runlog.row(event="task_result", kind=g.kind, result=detail,
-                        note=" / ".join(res.get("fresh", [])[:6]), url=page.url, **ctx)
+            self.runlog.row(
+                event="task_field",
+                kind=TASK_KIND[d.field.kind],
+                question=d.field.title,
+                chosen_text=d.value,
+                note=d.source,
+                url=page.url,
+                **ctx,
+            )
+        self.runlog.row(
+            event="task_result",
+            kind=g.kind,
+            result=detail,
+            note=" / ".join(res.get("fresh", [])[:6]),
+            url=page.url,
+            **ctx,
+        )
         self.ops.snapshot(self.snap_dir, f"task_{ctx['livebook']}_{ctx['lu']}")
+        self.state.save_submission(
+            ctx["livebook"],
+            ctx["lu"],
+            {
+                "status": "submitted",
+                "kind": g.kind,
+                "result": detail,
+            },
+        )
         return TaskOutcome("submitted", g.kind, detail, self._report(drafts))
 
     # ------------------------------------------------------------------ drafting
@@ -370,27 +445,43 @@ class TaskSolver:
         course = f"{lb} - LU {lu} {title}".strip()
         fresh = self.fresh
         given = self.linkbook.lookup(lb, lu, title)
-        own = self.linkbook.lookup(lb, lu, title, wildcard=False)   # links you gave for this LU itself
+        own = self.linkbook.lookup(lb, lu, title, wildcard=False)  # links you gave for this LU itself
         earlier = self.state.repo(lb, lu)
         drafts = [Draft(f) for f in g.fields if not f.locked]
-        drafts = [d for d in drafts if not (d.field.kind == "other" and not d.field.required
-                                            and not d.field.value.strip())]   # optional box: leave empty
+        drafts = [
+            d for d in drafts if not (d.field.kind == "other" and not d.field.required and not d.field.value.strip())
+        ]  # optional box: leave empty
 
         # 1. links and files first: no model calls if a link or file we can't produce is missing
         for d in drafts:
             f = d.field
             if f.kind == "file":
                 file_path = given.get("file") or given.get("pdf")
+                if file_path:
+                    fp = Path(file_path)
+                    if not fp.is_absolute() and self.cfg.get("_meta", {}).get("home"):
+                        fp = self.cfg["_meta"]["home"] / fp
+                    file_path = str(fp.resolve()) if fp.exists() else None
                 if not file_path:
                     slug_lb = slug(ctx.get("livebook", ""), 20).lower()
-                    for p in sorted(Path("runs").glob("**/*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
-                        stem = p.stem.lower()
-                        parts = stem.split("_")
-                        if f"lu_{ctx['lu']}_" in stem or f"lu_{ctx['lu']}" in parts or stem.endswith(f"_{ctx['lu']}"):
-                            if slug_lb and slug_lb not in stem and "solution" not in stem:
-                                continue
-                            file_path = str(p)
-                            break
+                    search_root = (
+                        self.run_dir.parent
+                        if self.run_dir
+                        else (self.cfg.get("_meta", {}).get("home", Path(".")) / "runs")
+                    )
+                    if search_root.exists():
+                        for p in sorted(search_root.glob("**/*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
+                            stem = p.stem.lower()
+                            parts = stem.split("_")
+                            if (
+                                f"lu_{ctx['lu']}_" in stem
+                                or f"lu_{ctx['lu']}" in parts
+                                or stem.endswith(f"_{ctx['lu']}")
+                            ):
+                                if slug_lb and slug_lb not in stem and "solution" not in stem:
+                                    continue
+                                file_path = str(p.resolve())
+                                break
                 if not file_path and self.llm:
                     file_path = self._generate_pdf(f, ctx, course, material)
                 if file_path and Path(file_path).exists():
@@ -411,15 +502,19 @@ class TaskSolver:
                 d.value, d.source = f.value.strip(), "already in the box"
             elif given.get(k):
                 d.value, d.source = given[k], "submissions.yaml"
-            elif k == "link" and len(own) == 1:   # one link for this LU: it is the one asked for
+            elif k == "link" and len(own) == 1:  # one link for this LU: it is the one asked for
                 d.value, d.source = next(iter(own.values())), "submissions.yaml"
             elif k in ("github", "live") and earlier.get(k):
                 d.value, d.source = earlier[k], "repo from an earlier run"
             elif k == "github" and self.gh:
-                d.source = "new repo"            # generated below
-            elif k == "live" and self.gh and self.cfg["github"].get("enable_pages") and any(
-                    o.field.link_kind == "github" and not o.value for o in drafts):
-                d.source = "GitHub Pages"        # comes with the new repo
+                d.source = "new repo"  # generated below
+            elif (
+                k == "live"
+                and self.gh
+                and self.cfg["github"].get("enable_pages")
+                and any(o.field.link_kind == "github" and not o.value for o in drafts)
+            ):
+                d.source = "GitHub Pages"  # comes with the new repo
             else:
                 d.missing = self._missing_hint(k)
         if not any(d.source == "new repo" for d in drafts):
@@ -448,12 +543,20 @@ class TaskSolver:
                 have = "" if fresh else f.value.strip()
                 n = count_words(have)
                 if (f.kind == "short" and have) or (stated and n >= 15 and stated[0] <= n <= stated[1] * 1.2):
-                    d.value, d.source = have, "already in the box"   # a finished answer that meets the limit
+                    d.value, d.source = have, "already in the box"  # a finished answer that meets the limit
                     continue
                 self.ui.note(f"Writing: {f.title}", indent=2)
                 max_chars = int(f.maxlength or self.cfg["written"]["short_answer_max_chars"])
-                spec = WriteSpec(question or f.label, f.label, words, f.kind == "short", max_chars,
-                                 [o.field.title for o in texts if o is not d], existing=have, markdown=f.md)
+                spec = WriteSpec(
+                    question or f.label,
+                    f.label,
+                    words,
+                    f.kind == "short",
+                    max_chars,
+                    [o.field.title for o in texts if o is not d],
+                    existing=have,
+                    markdown=f.md,
+                )
                 d.value, d.source = self.llm.write(spec, course, material), "AI draft"
                 if f.maxlength:
                     d.value = fit_chars(d.value, f.maxlength)
@@ -468,19 +571,38 @@ class TaskSolver:
         if kind == "video":
             return "needs your video link: record it, then add `video:` for this LU to submissions.yaml"
         if kind == "github" and not self.gh:
-            return ("needs a GitHub repository link: add `github:` to submissions.yaml, "
-                    "or set GITHUB_TOKEN so kalbot can create the repo")
+            return (
+                "needs a GitHub repository link: add `github:` to submissions.yaml, "
+                "or set GITHUB_TOKEN so kalbot can create the repo"
+            )
         if kind == "pr":
             return "needs your pull request link: add `pr:` to submissions.yaml"
         return f"needs a {name} link: add `{kind}:` for this LU to submissions.yaml"
 
     def _generate_pdf(self, f: Field, ctx: dict, course: str, material: str) -> str | None:
+        p = None
         try:
+            import html as html_lib
+
             self.ui.note("Drafting lab solution report for PDF upload with LLM...", indent=2)
             question = f.prompt or f.label or material[:2000]
             spec = WriteSpec(question, f.label or "Lab Report", (400, 900), False, 30000, [], markdown=True)
             body = self.llm.write(spec, course, material)
-            body_html = body.replace("\n", "<br>")
+            paragraphs = []
+            for block in body.split("\n\n"):
+                b = block.strip()
+                if not b:
+                    continue
+                if b.startswith("#"):
+                    level = min(len(b) - len(b.lstrip("#")), 6)
+                    paragraphs.append(f"<h{level}>{html_lib.escape(b.lstrip('#').strip())}</h{level}>")
+                elif b.startswith("```"):
+                    lines = b.splitlines()
+                    code_content = "\n".join(lines[1:-1]) if len(lines) >= 2 and lines[-1].startswith("```") else b
+                    paragraphs.append(f"<pre><code>{html_lib.escape(code_content)}</code></pre>")
+                else:
+                    paragraphs.append(f"<p>{html_lib.escape(b).replace(chr(10), '<br>')}</p>")
+            body_html = "\n".join(paragraphs)
             html = (
                 "<!DOCTYPE html><html><head><meta charset='utf-8'>"
                 "<style>@page { size: A4; margin: 16mm 18mm; }"
@@ -488,17 +610,21 @@ class TaskSolver:
                 "line-height: 1.55; color: #1f2937; font-size: 10.5pt; }"
                 "h1 { color: #1e3a8a; font-size: 16pt; border-bottom: 2px solid #2563eb; padding-bottom: 6px; }"
                 "h2 { color: #1e40af; font-size: 13pt; margin-top: 14px; }"
-                "pre, code { font-family: Consolas, monospace; background: #f1f5f9; padding: 2px 5px; }"
-                "pre { font-size: 9.5pt; }"
+                "pre, code { font-family: Consolas, monospace; background: #f1f5f9; "
+                "padding: 2px 5px; border-radius: 4px; }"
+                "pre { font-size: 9.5pt; padding: 10px; overflow: auto; }"
                 "table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.5pt; }"
                 "th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; }"
                 "th { background: #f8fafc; font-weight: 600; }</style></head><body>"
-                f"<h1>{ctx['livebook']} — LU {ctx['lu']}</h1>"
-                f"<p><strong>Topic:</strong> {ctx['lu_title']}</p><hr>"
+                f"<h1>{html_lib.escape(str(ctx.get('livebook', '')))} — "
+                f"LU {html_lib.escape(str(ctx.get('lu', '')))}</h1>"
+                f"<p><strong>Topic:</strong> {html_lib.escape(str(ctx.get('lu_title', '')))}</p><hr>"
                 f"<div>{body_html}</div></body></html>"
             )
-            wants_image = any(ext in (f.label or "").lower() or ext in (f.prompt or "").lower()
-                              for ext in ("png", "jpeg", "jpg", "image"))
+            wants_image = any(
+                ext in (f.label or "").lower() or ext in (f.prompt or "").lower()
+                for ext in ("png", "jpeg", "jpg", "image")
+            )
             p = self.ops.page.context.new_page()
             p.set_content(html, wait_until="load")
             if wants_image:
@@ -509,11 +635,16 @@ class TaskSolver:
                 out_file = self.run_dir / f"solution_LU_{ctx['lu']}.pdf"
                 p.pdf(path=str(out_file), format="A4", print_background=True)
                 log.info("auto-generated PDF %s", out_file)
-            p.close()
             return str(out_file)
         except Exception as e:
             log.warning("failed to auto-generate file upload: %s", e)
             return None
+        finally:
+            if p:
+                try:
+                    p.close()
+                except Exception:
+                    pass
 
     def _plan_repo(self, d: Draft, drafts: list[Draft], g: Group, ctx: dict, course: str, material: str) -> None:
         others = sorted({o.field.link_kind for o in drafts if o.field.kind == "link" and o is not d})
@@ -521,8 +652,10 @@ class TaskSolver:
         self.ui.note("Designing a project for the GitHub repository...", indent=2)
         project = self.llm.project(ProjectSpec(question, others), slug(ctx["lu_title"]).lower(), course, material)
         if project.requires_existing_repo:
-            raise Manual("the assignment asks you to work on an existing repository (fork / pull request); "
-                         "do that, then add `github:` or `pr:` for this LU to submissions.yaml")
+            raise Manual(
+                "the assignment asks you to work on an existing repository (fork / pull request); "
+                "do that, then add `github:` or `pr:` for this LU to submissions.yaml"
+            )
         gh = self.gh
         try:
             owner = gh.user()["login"]
@@ -535,8 +668,10 @@ class TaskSolver:
                 if project.static_site:
                     o.value = f"https://{owner.lower()}.github.io/{name}/"
                 else:
-                    raise Manual("the live-site link needs a deployed app (this project isn't a static site): "
-                                 "deploy it, then add `live:` for this LU to submissions.yaml")
+                    raise Manual(
+                        "the live-site link needs a deployed app (this project isn't a static site): "
+                        "deploy it, then add `live:` for this LU to submissions.yaml"
+                    )
 
     # ------------------------------------------------------------------ review
 
@@ -551,9 +686,16 @@ class TaskSolver:
                 items.append(ReviewItem(f.title, "code", d.value, f"{f.language or 'code'} · {d.source}", f.language))
             elif d.project:
                 vis = "private" if self.cfg["github"].get("private") else "public"
-                items.append(ReviewItem(f.title, "project", d.value,
-                                        f"new {vis} repo, created when you submit · {d.project.description}",
-                                        files=sorted(d.project.files), editable=False))
+                items.append(
+                    ReviewItem(
+                        f.title,
+                        "project",
+                        d.value,
+                        f"new {vis} repo, created when you submit · {d.project.description}",
+                        files=sorted(d.project.files),
+                        editable=False,
+                    )
+                )
             elif f.kind == "link":
                 items.append(ReviewItem(f.title, "link", d.value, d.source))
             elif f.kind == "file":
@@ -564,8 +706,9 @@ class TaskSolver:
 
     def _review(self, g: Group, ctx: dict, material: str, drafts: list[Draft]) -> list[Draft] | None:
         while self.review_on:
-            choice = self.ui.review(self._title(ctx, g, "Review"), self._items(drafts),
-                                    "Nothing has been typed into the portal yet.")
+            choice = self.ui.review(
+                self._title(ctx, g, "Review"), self._items(drafts), "Nothing has been typed into the portal yet."
+            )
             if choice == "submit":
                 break
             if choice == "all":
@@ -590,10 +733,15 @@ class TaskSolver:
                     elif url:
                         d.value, d.source = url, "edited by you"
                 else:
-                    suffix = SUFFIX.get(d.field.language.lower().split()[0], ".txt") if d.field.kind == "code" \
-                        and d.field.language else ".txt"
-                    d.value, d.source = self.ui.edit(d.value, suffix).rstrip() + (
-                        "\n" if d.field.kind == "code" else ""), "edited by you"
+                    suffix = (
+                        SUFFIX.get(d.field.language.lower().split()[0], ".txt")
+                        if d.field.kind == "code" and d.field.language
+                        else ".txt"
+                    )
+                    d.value, d.source = (
+                        self.ui.edit(d.value, suffix).rstrip() + ("\n" if d.field.kind == "code" else ""),
+                        "edited by you",
+                    )
         return drafts
 
     def _save_drafts(self, ctx: dict, g: Group, drafts: list[Draft]) -> None:
@@ -620,9 +768,15 @@ class TaskSolver:
         g = self.cfg["github"]
         self.ui.step(f"Creating GitHub repo {d.repo_name} ...", indent=1)
         try:
-            out = publish(self.gh, d.repo_name, d.project.description, d.project.files,
-                          private=bool(g.get("private")), pages=bool(g.get("enable_pages") and d.project.static_site),
-                          wait_s=float(self.cfg["links"].get("wait_for_live_site_s") or 0))
+            out = publish(
+                self.gh,
+                d.repo_name,
+                d.project.description,
+                d.project.files,
+                private=bool(g.get("private")),
+                pages=bool(g.get("enable_pages") and d.project.static_site),
+                wait_s=float(self.cfg["links"].get("wait_for_live_site_s") or 0),
+            )
         except GitHubError as e:
             raise UnexpectedState(str(e)) from None
         self.state.save_repo(ctx["livebook"], ctx["lu"], out)
@@ -710,10 +864,12 @@ class TaskSolver:
         for n in range(rounds + 1):
             f = next(x for x in self._refresh(frame, g.keys).fields if x.key == d.field.key)
             verdict, out = self._run_once(frame, f.run)
-            self.runlog.row(event="run_tests", kind="coding", attempt=n + 1, result=verdict, note=out[:500],
-                            url=page.url, **ctx)
+            self.runlog.row(
+                event="run_tests", kind="coding", attempt=n + 1, result=verdict, note=out[:500], url=page.url, **ctx
+            )
             (self.ui.ok if verdict == "pass" else self.ui.warn if verdict == "fail" else self.ui.note)(
-                f"Run {n + 1}: {verdict}" + (f" · {short(verdict_line(out), 90)}" if out else ""), indent=2)
+                f"Run {n + 1}: {verdict}" + (f" · {short(verdict_line(out), 90)}" if out else ""), indent=2
+            )
             if verdict != "fail" or n == rounds:
                 break
             spec = CodeSpec(d.field.prompt or d.field.label, d.field.language, d.field.value)
@@ -734,7 +890,7 @@ class TaskSolver:
         got = self.ops.poll(check, self.t["run_output_ms"], 500)
         if not got:
             return "unknown", ""
-        self.ops.pause()   # output may still be streaming in
+        self.ops.pause()  # output may still be streaming in
         return check() or got
 
     # ------------------------------------------------------------------ submitting
@@ -768,7 +924,7 @@ class TaskSolver:
             box = fr.locator(f'[data-kqb-chk="{i}"]').first
             try:
                 box.check(timeout=self.t["action_ms"])
-            except PWError:   # a styled checkbox whose <input> is hidden behind its label
+            except PWError:  # a styled checkbox whose <input> is hidden behind its label
                 box.dispatch_event("click")
         self.ui.note(f"Pre-submission review: ticked {c['boxes']} item(s)", indent=2)
         again = self.ops.call(fr, "checklist", self.ops.jscfg)
@@ -784,6 +940,7 @@ class TaskSolver:
             fresh = self._refresh(frame, g.keys)
             raw = self.ops.call(frame, "tasks", self.ops.jscfg)
             return fresh if any(s["index"] == fresh.submit and not s["disabled"] for s in raw["submits"]) else None
+
         if not self.ops.poll(enabled, 15000, 300):
             raise UnexpectedState("Submit stayed disabled after filling every box")
         g = self._refresh(frame, g.keys)
@@ -822,7 +979,8 @@ class TaskSolver:
                 if again.get("message"):
                     r.update(again)
                 return bool(again.get("message"))
-            if r and not r.get("message"):   # the confirmation text may render a moment later
+
+            if r and not r.get("message"):  # the confirmation text may render a moment later
                 self.ops.poll(message, 3000, 300)
         finally:
             self.ops.expect_confirm = False
@@ -848,7 +1006,16 @@ class TaskSolver:
 
     @staticmethod
     def _report(drafts: list[Draft]) -> list[dict]:
-        return [{"label": d.field.title, "kind": d.field.kind, "link_kind": d.field.link_kind,
-                 "language": d.field.language, "value": d.value, "source": d.source,
-                 "words": count_words(d.value) if d.field.kind in ("text", "short") else None,
-                 "files": sorted(d.project.files) if d.project else []} for d in drafts]
+        return [
+            {
+                "label": d.field.title,
+                "kind": d.field.kind,
+                "link_kind": d.field.link_kind,
+                "language": d.field.language,
+                "value": d.value,
+                "source": d.source,
+                "words": count_words(d.value) if d.field.kind in ("text", "short") else None,
+                "files": sorted(d.project.files) if d.project else [],
+            }
+            for d in drafts
+        ]

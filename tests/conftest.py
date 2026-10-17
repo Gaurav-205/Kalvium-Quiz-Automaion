@@ -19,26 +19,36 @@ from mock_portal import CHECKS, QUIZZES  # noqa: E402
 from kalbot import llm, prompts  # noqa: E402
 
 ALL_QUESTIONS = {q["text"]: q for qs in [*QUIZZES.values(), *CHECKS.values()] for q in qs}
-WRONG_FIRST = {q["text"] for q in QUIZZES[("2505", "12")][:3]}     # forces a fail, then a retake
-INVALID_ONCE = {QUIZZES[("2505", "21")][1]["text"]}                  # exercises the JSON retry
+WRONG_FIRST = {q["text"] for q in QUIZZES[("2505", "12")][:3]}  # forces a fail, then a retake
+INVALID_ONCE = {QUIZZES[("2505", "21")][1]["text"]}  # exercises the JSON retry
 
-SENTENCE = ("Semantic structure helps every reader, and I now plan my pages around clear headings, "
-            "landmarks and meaningful labels before I write any styling. ")
-BUGGY_FIZZ = ("def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n"
-              "        if i % 3 == 0:\n            out.append('Fizz')\n        elif i % 5 == 0:\n"
-              "            out.append('Buzz')\n        else:\n            out.append(str(i))\n    return out\n")
-GOOD_FIZZ = ("def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n        if i % 15 == 0:\n"
-             "            out.append('FizzBuzz')\n        elif i % 3 == 0:\n            out.append('Fizz')\n"
-             "        elif i % 5 == 0:\n            out.append('Buzz')\n        else:\n"
-             "            out.append(str(i))\n    return out\n")
-TWO_SUM = ("#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n"
-           "    vector<long long> a(n); for (auto &x : a) cin >> x;\n    long long t; cin >> t;\n"
-           "    unordered_map<long long, int> seen;\n    for (int j = 0; j < n; j++) {\n"
-           "        if (seen.count(t - a[j])) { cout << seen[t - a[j]] << ' ' << j << endl; return 0; }\n"
-           "        seen[a[j]] = j;\n    }\n    return 0;\n}\n")
+SENTENCE = (
+    "Semantic structure helps every reader, and I now plan my pages around clear headings, "
+    "landmarks and meaningful labels before I write any styling. "
+)
+BUGGY_FIZZ = (
+    "def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n"
+    "        if i % 3 == 0:\n            out.append('Fizz')\n        elif i % 5 == 0:\n"
+    "            out.append('Buzz')\n        else:\n            out.append(str(i))\n    return out\n"
+)
+GOOD_FIZZ = (
+    "def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n        if i % 15 == 0:\n"
+    "            out.append('FizzBuzz')\n        elif i % 3 == 0:\n            out.append('Fizz')\n"
+    "        elif i % 5 == 0:\n            out.append('Buzz')\n        else:\n"
+    "            out.append(str(i))\n    return out\n"
+)
+TWO_SUM = (
+    "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n"
+    "    vector<long long> a(n); for (auto &x : a) cin >> x;\n    long long t; cin >> t;\n"
+    "    unordered_map<long long, int> seen;\n    for (int j = 0; j < n; j++) {\n"
+    "        if (seen.count(t - a[j])) { cout << seen[t - a[j]] << ' ' << j << endl; return 0; }\n"
+    "        seen[a[j]] = j;\n    }\n    return 0;\n}\n"
+)
 PROJECT = {
-    "repo_name": "portfolio-website", "description": "Personal portfolio with About and Projects sections",
-    "static_site": True, "requires_existing_repo": False,
+    "repo_name": "portfolio-website",
+    "description": "Personal portfolio with About and Projects sections",
+    "static_site": True,
+    "requires_existing_repo": False,
     "files": [
         {"path": "README.md", "content": "# Portfolio\n\nOpen index.html in a browser.\n"},
         {"path": "index.html", "content": "<!doctype html><title>Me</title><h1>About</h1><h2>Projects</h2>"},
@@ -84,7 +94,7 @@ class FakeProvider(llm.LLMProvider):
             m = re.search(r"between (\d+) and (\d+) words", p)
             lo, hi = (int(m[1]), int(m[2])) if m else (100, 150)
             if "know thyself" in p.lower() and "Your draft below" not in p:
-                return words(lo // 4)           # too short on purpose: kalbot must ask for a rewrite
+                return words(lo // 4)  # too short on purpose: kalbot must ask for a rewrite
             if "Your draft below" in p:
                 FakeProvider.revised.append(p)
             if "Markdown editor" in req.system:
@@ -112,6 +122,7 @@ def browser_settings() -> dict:
     if exe:
         return {"channel": "", "executable_path": exe}
     from playwright.sync_api import sync_playwright
+
     with sync_playwright() as p:
         if Path(p.chromium.executable_path).exists():
             return {"channel": "chromium", "executable_path": ""}

@@ -20,7 +20,7 @@ log = logging.getLogger("kalbot.quiz")
 
 @dataclass
 class QuizOutcome:
-    status: str          # submitted | dry_run | needs_retake | checks_only | already_done | no_quiz
+    status: str  # submitted | dry_run | needs_retake | checks_only | already_done | no_quiz
     result: str = ""
     attempts: int = 0
     items: list[dict] = field(default_factory=list)
@@ -109,8 +109,11 @@ class QuizSolver:
             completed = False
         if (completed or st["kind"] == "none") and self.can_improve(st):
             if self.dry_run and not self.opts.get("dry_run_click_start"):
-                self.ui.note("[dry-run] submitted without full marks; Retake not clicked "
-                             "(it would replace the recorded attempt)", indent=1)
+                self.ui.note(
+                    "[dry-run] submitted without full marks; Retake not clicked "
+                    "(it would replace the recorded attempt)",
+                    indent=1,
+                )
                 self.runlog.row(event="dry_run", kind="quiz", note="retake not clicked", url=page.url, **ctx)
                 return QuizOutcome("needs_retake")
             self.ui.step("Submitted before without full marks; retaking (--retake).", indent=1)
@@ -125,7 +128,7 @@ class QuizSolver:
 
     def start(self, page):
         proceed = self.cfg["texts"]["proceed"]
-        for _ in range(3):   # some quizzes have an instructions screen with a second Start
+        for _ in range(3):  # some quizzes have an instructions screen with a second Start
             self.ops.confirm(proceed, "confirm Start")
             frame, st, _ = self.locate(page)
             if st["kind"] == "question":
@@ -134,8 +137,10 @@ class QuizSolver:
                 break
             self.ops.click(frame, '[data-kqb-btn="start"]', "Start")
             self.ops.pause()
-            got = self.ops.poll(lambda: self.ops.confirm(proceed, "confirm Start") and None or self._question(page),
-                                self.t["question_change_ms"])
+            got = self.ops.poll(
+                lambda: self.ops.confirm(proceed, "confirm Start") and None or self._question(page),
+                self.t["question_change_ms"],
+            )
             if got:
                 return got
         raise UnexpectedState("clicked Start but no question appeared")
@@ -152,9 +157,17 @@ class QuizSolver:
                 return QuizOutcome("checks_only", result["snippet"], attempt, outcome.items + items)
             outcome = QuizOutcome("submitted", describe(result), attempt, outcome.items + items)
             (self.ui.ok if not self._failed(result) else self.ui.warn)(
-                f"Result (attempt {attempt}): {outcome.result}", indent=1)
-            self.runlog.row(event="result", kind="quiz", attempt=attempt, result=outcome.result,
-                            note=" / ".join((result or {}).get("fresh", [])[:6]), url=page.url, **ctx)
+                f"Result (attempt {attempt}): {outcome.result}", indent=1
+            )
+            self.runlog.row(
+                event="result",
+                kind="quiz",
+                attempt=attempt,
+                result=outcome.result,
+                note=" / ".join((result or {}).get("fresh", [])[:6]),
+                url=page.url,
+                **ctx,
+            )
             if self.opts.get("snapshot_quiz_pages"):
                 self.ops.snapshot(self.snap_dir, f"result_{ctx['livebook']}_{ctx['lu']}_a{attempt}")
             if not (self._failed(result) and attempt < max_attempts):
@@ -170,12 +183,12 @@ class QuizSolver:
     def _failed(self, r: dict | None) -> bool:
         if not r or not r.get("found") or r.get("checks_only"):
             return False
-        if r.get("failStrong"):        # "You failed", "Not passed", "Better luck next time"
+        if r.get("failStrong"):  # "You failed", "Not passed", "Better luck next time"
             return True
-        if r.get("pass"):              # "Congratulations, you passed" (pass marks differ per quiz)
+        if r.get("pass"):  # "Congratulations, you passed" (pass marks differ per quiz)
             return False
         frac = float(self.opts.get("pass_fraction", 0.6))
-        if r.get("score") is not None and r.get("total"):   # a score beats a stray "try again"
+        if r.get("score") is not None and r.get("total"):  # a score beats a stray "try again"
             return r["score"] / r["total"] < frac
         if r.get("percent") is not None:
             return r["percent"] < frac * 100
@@ -184,7 +197,7 @@ class QuizSolver:
     def _retake(self, page):
         def has_retake(f) -> bool:
             try:
-                return bool(self.state(f).get("retake"))   # state() marks the button
+                return bool(self.state(f).get("retake"))  # state() marks the button
             except PWError:
                 return False
 
@@ -194,8 +207,10 @@ class QuizSolver:
         self.ops.click(frame, '[data-kqb-btn="retake"]', "Retake")
         self.ops.pause()
         proceed = self.cfg["texts"]["proceed"]
-        got = self.ops.poll(lambda: self.ops.confirm(proceed, "confirm Retake") and None or
-                            self._question_or_start(page), self.t["question_change_ms"])
+        got = self.ops.poll(
+            lambda: self.ops.confirm(proceed, "confirm Retake") and None or self._question_or_start(page),
+            self.t["question_change_ms"],
+        )
         if not got:
             raise UnexpectedState("clicked Retake but no quiz appeared")
         frame, st = got
@@ -211,12 +226,12 @@ class QuizSolver:
         prev_fp = None
         course = f"{ctx['livebook']} - LU {ctx['lu']} {ctx['lu_title']}".strip()
         max_q = int(self.opts.get("max_questions_per_quiz", 12))
-        progress = None   # [n, total] of the last question, when the page shows it
+        progress = None  # [n, total] of the last question, when the page shows it
         for n in range(1, max_q + 1):
             if n > 1:
                 frame, st = self._wait_next_question(page, frame, prev_fp)
                 if st["kind"] != "question":
-                    if st.get("submitBtn"):      # a review page with only Submit on it
+                    if st.get("submitBtn"):  # a review page with only Submit on it
                         return answers, items, self._submit(page, frame)
                     # a lesson's ungraded check questions end here; the graded quiz may start below
                     self.ops.call(None, "scrollAll")
@@ -232,13 +247,27 @@ class QuizSolver:
                         if progress and progress[1] and progress[0] < progress[1]:
                             raise UnexpectedState(f"question {n} of {progress[1]} did not appear")
                         self.ui.note(f"Answered {n - 1} check question(s); no graded quiz followed.", indent=1)
-                        return answers, items, {"found": True, "checks_only": True, "fresh": [],
-                                                "snippet": f"answered {n - 1} ungraded check question(s)"}
+                        return (
+                            answers,
+                            items,
+                            {
+                                "found": True,
+                                "checks_only": True,
+                                "fresh": [],
+                                "snippet": f"answered {n - 1} ungraded check question(s)",
+                            },
+                        )
 
             progress = st.get("progress")
             prog = progress or [n, None]
-            q = Question(text=st["question"], options=st["options"], multi=bool(st["multi"]),
-                         code=st.get("code") or [], number=prog[0], total=prog[1])
+            q = Question(
+                text=st["question"],
+                options=st["options"],
+                multi=bool(st["multi"]),
+                code=st.get("code") or [],
+                number=prog[0],
+                total=prog[1],
+            )
             if n == 1 and self.opts.get("snapshot_quiz_pages"):
                 self.ops.snapshot(self.snap_dir, f"quiz_{ctx['livebook']}_{ctx['lu']}_q1")
 
@@ -246,13 +275,32 @@ class QuizSolver:
             chosen_text = " | ".join(q.options[i] for i in ans.indices)
             self.ui.question(q, ans)
             self.runlog.row(
-                event="dry_run_question" if self.dry_run else "question", kind="quiz", attempt=attempt,
-                q_no=q.number, question=q.text, code="\n---\n".join(q.code),
+                event="dry_run_question" if self.dry_run else "question",
+                kind="quiz",
+                attempt=attempt,
+                q_no=q.number,
+                question=q.text,
+                code="\n---\n".join(q.code),
                 options=" || ".join(f"[{i}] {o}" for i, o in enumerate(q.options)),
-                multi=q.multi, chosen=ans.indices, chosen_text=chosen_text,
-                confidence=ans.confidence, note=f"detected via {st.get('source')}", url=page.url, **ctx)
-            items.append({"attempt": attempt, "q": q.number, "question": q.text, "code": q.code,
-                          "options": q.options, "chosen": ans.indices, "confidence": ans.confidence})
+                multi=q.multi,
+                chosen=ans.indices,
+                chosen_text=chosen_text,
+                confidence=ans.confidence,
+                note=f"detected via {st.get('source')}",
+                url=page.url,
+                **ctx,
+            )
+            items.append(
+                {
+                    "attempt": attempt,
+                    "q": q.number,
+                    "question": q.text,
+                    "code": q.code,
+                    "options": q.options,
+                    "chosen": ans.indices,
+                    "confidence": ans.confidence,
+                }
+            )
             answers[q.text] = ans.indices
             if self.dry_run:
                 return answers, items, None
@@ -262,8 +310,7 @@ class QuizSolver:
 
             nav = self.ops.call(frame, "nav", self.ops.jscfg)
             last = bool(q.total) and q.number >= q.total
-            if nav["submitBtn"] and not nav["submitDisabled"] and (
-                    not nav["next"] or nav["nextDisabled"] or last):
+            if nav["submitBtn"] and not nav["submitDisabled"] and (not nav["next"] or nav["nextDisabled"] or last):
                 if n != int(self.opts.get("expected_questions", 5)):
                     log.warning("submitting after %d questions (expected %s)", n, self.opts.get("expected_questions"))
                 return answers, items, self._submit(page, frame)
@@ -283,8 +330,10 @@ class QuizSolver:
             frame.wait_for_function(
                 "a => !!window.__kqb && window.__kqb.fingerprint(a.cfg) !== a.prev",
                 arg={"cfg": self.ops.jscfg, "prev": prev_fp},
-                timeout=min(self.t["question_change_ms"], 10000), polling=250)
-        except PWError as e:   # timed out (checked below), or the frame navigated: re-locate
+                timeout=min(self.t["question_change_ms"], 10000),
+                polling=250,
+            )
+        except PWError as e:  # timed out (checked below), or the frame navigated: re-locate
             log.debug("wait_for_function: %s", first_line(e))
         self.ops.pause()
         # mid-transition the old question may be gone before the new one renders
@@ -293,7 +342,7 @@ class QuizSolver:
             return got
         frame, st, _ = self.locate(page)
         if st["kind"] == "question" and st.get("fingerprint") == prev_fp:
-            self.ops.call(None, "scrollAll")   # the next question may render further down
+            self.ops.call(None, "scrollAll")  # the next question may render further down
             self.ops.pause()
             frame, st, _ = self.locate(page)
             if st["kind"] == "question" and st.get("fingerprint") == prev_fp:
@@ -306,7 +355,7 @@ class QuizSolver:
         wanted = set(indices)
         selected = st.get("selected") or []
         to_click = [i for i in indices if not (i < len(selected) and selected[i] is True)]
-        if st["multi"]:   # untick leftovers from an earlier visit
+        if st["multi"]:  # untick leftovers from an earlier visit
             to_click += [i for i, s in enumerate(selected) if s is True and i not in wanted]
         for k, i in enumerate(to_click):
             if not frame.locator(f'[data-kqb-opt="{i}"]').count():
@@ -315,7 +364,7 @@ class QuizSolver:
                 if again.get("fingerprint") != st["fingerprint"]:
                     raise UnexpectedState("question changed while selecting options")
             before = self.ops.call(frame, "selInfo", i)
-            page.mouse.move(2, 2)   # keep hover styles out of the before/after comparison
+            page.mouse.move(2, 2)  # keep hover styles out of the before/after comparison
             self.ops.click(frame, f'[data-kqb-opt="{i}"]', f"option {i}")
             page.mouse.move(2, 2)
             want = i in wanted
@@ -327,7 +376,7 @@ class QuizSolver:
     def _verify(self, frame, i: int, before: dict, want: bool) -> bool:
         def check():
             info = self.ops.call(frame, "selInfo", i)
-            if info.get("stale"):   # options re-rendered: analyse again
+            if info.get("stale"):  # options re-rendered: analyse again
                 st = self.state(frame)
                 if st["kind"] != "question" or i >= len(st["selected"]):
                     return False
@@ -338,6 +387,7 @@ class QuizSolver:
                 return bool(info.get("sel")) is want
             changed = info.get("sig") != before.get("sig")
             return changed if before.get("sig") is not None else bool(info.get("cls")) is want
+
         return bool(self.ops.poll(check, 3000, 200))
 
     # ------------------------------------------------------------------ submitting
@@ -365,7 +415,7 @@ class QuizSolver:
 
             r = self.ops.poll(check, self.t["result_ms"], 400)
             if r:
-                self.ops.pause()   # let the result screen finish rendering, then re-read it
+                self.ops.pause()  # let the result screen finish rendering, then re-read it
                 try:
                     r2 = self.ops.call(frame, "result", self.ops.jscfg, before)
                     if r2.get("found"):

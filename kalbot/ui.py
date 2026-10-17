@@ -22,12 +22,19 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-THEME = Theme({
-    "ok": "green", "warn": "yellow", "err": "bold red", "accent": "cyan",
-    "muted": "grey58", "title": "bold", "chosen": "bold green",
-})
+THEME = Theme(
+    {
+        "ok": "green",
+        "warn": "yellow",
+        "err": "bold red",
+        "accent": "cyan",
+        "muted": "grey58",
+        "title": "bold",
+        "chosen": "bold green",
+    }
+)
 
-STATUS = {   # result status -> (label, style)
+STATUS = {  # result status -> (label, style)
     "submitted": ("submitted", "ok"),
     "preview": ("preview", "accent"),
     "manual": ("needs you", "warn"),
@@ -36,14 +43,46 @@ STATUS = {   # result status -> (label, style)
     "skipped": ("skipped", "muted"),
     "done": ("already done", "muted"),
 }
-COUNT_LABELS = [("submitted", "Submitted"), ("preview", "Previewed"), ("done", "Already done"),
-                ("manual", "Needs you"), ("none", "No task found"), ("skipped", "Skipped"), ("error", "Errors")]
+COUNT_LABELS = [
+    ("submitted", "Submitted"),
+    ("preview", "Previewed"),
+    ("done", "Already done"),
+    ("manual", "Needs you"),
+    ("none", "No task found"),
+    ("skipped", "Skipped"),
+    ("error", "Errors"),
+]
 
-LEXERS = {"python": "python", "python3": "python", "py": "python", "java": "java", "javascript": "javascript",
-          "js": "javascript", "node": "javascript", "typescript": "typescript", "ts": "typescript",
-          "c++": "cpp", "cpp": "cpp", "c": "c", "c#": "csharp", "csharp": "csharp", "go": "go", "golang": "go",
-          "rust": "rust", "ruby": "ruby", "php": "php", "kotlin": "kotlin", "swift": "swift", "sql": "sql",
-          "html": "html", "css": "css", "bash": "bash", "shell": "bash", "r": "r", "dart": "dart"}
+LEXERS = {
+    "python": "python",
+    "python3": "python",
+    "py": "python",
+    "java": "java",
+    "javascript": "javascript",
+    "js": "javascript",
+    "node": "javascript",
+    "typescript": "typescript",
+    "ts": "typescript",
+    "c++": "cpp",
+    "cpp": "cpp",
+    "c": "c",
+    "c#": "csharp",
+    "csharp": "csharp",
+    "go": "go",
+    "golang": "go",
+    "rust": "rust",
+    "ruby": "ruby",
+    "php": "php",
+    "kotlin": "kotlin",
+    "swift": "swift",
+    "sql": "sql",
+    "html": "html",
+    "css": "css",
+    "bash": "bash",
+    "shell": "bash",
+    "r": "r",
+    "dart": "dart",
+}
 
 
 def short(text: str, n: int = 110) -> str:
@@ -54,12 +93,13 @@ def short(text: str, n: int = 110) -> str:
 @dataclass
 class ReviewItem:
     """One thing about to be submitted, as shown in the review panel."""
+
     label: str
-    kind: str                    # text | code | link | project
+    kind: str  # text | code | link | project
     value: str
     meta: str = ""
     language: str = ""
-    files: list[str] = field(default_factory=list)   # project file list
+    files: list[str] = field(default_factory=list)  # project file list
     editable: bool = True
 
 
@@ -116,8 +156,9 @@ class UI:
         grid.add_column()
         for k, v in rows:
             grid.add_row(k, Text(v))
-        self.c.print(Panel(grid, title=Text(title, style="title"), title_align="left", border_style="accent",
-                           expand=False))
+        self.c.print(
+            Panel(grid, title=Text(title, style="title"), title_align="left", border_style="accent", expand=False)
+        )
 
     def section(self, title: str) -> None:
         self.c.print()
@@ -169,8 +210,7 @@ class UI:
             head.append(f"  · {item.meta}", style="muted")
         if item.kind == "code":
             lexer = LEXERS.get(item.language.lower().split()[0], "text") if item.language else "text"
-            body = Syntax(item.value.rstrip("\n"), lexer, line_numbers=True, word_wrap=True,
-                          background_color="default")
+            body = Syntax(item.value.rstrip("\n"), lexer, line_numbers=True, word_wrap=True, background_color="default")
         elif item.kind == "link":
             body = Text("   " + (item.value or "(none)"), style="accent")
         elif item.kind == "project":
@@ -185,8 +225,11 @@ class UI:
         parts = [self.render_item(i + 1, it, last=i + 1 == len(items)) for i, it in enumerate(items)]
         if note:
             parts.append(Text(note, style="muted"))
-        self.c.print(Panel(Group(*parts), title=Text(title, style="title"), title_align="left",
-                           border_style=style, padding=(1, 2)))
+        self.c.print(
+            Panel(
+                Group(*parts), title=Text(title, style="title"), title_align="left", border_style=style, padding=(1, 2)
+            )
+        )
 
     def review(self, title: str, items: list[ReviewItem], note: str = "") -> str:
         """Show what is about to be submitted. Returns submit|edit:N|regen|skip|all|quit."""
@@ -194,8 +237,14 @@ class UI:
         if not self.interactive:
             return "skip"
         keys = Text("  ")
-        for k, label in (("Enter", "submit"), ("e", "edit"), ("r", "regenerate"), ("s", "skip"),
-                         ("a", "submit all from now on"), ("q", "quit")):
+        for k, label in (
+            ("Enter", "submit"),
+            ("e", "edit"),
+            ("r", "regenerate"),
+            ("s", "skip"),
+            ("a", "submit all from now on"),
+            ("q", "quit"),
+        ):
             keys.append(f"[{k}]", style="accent")
             keys.append(f" {label}   ")
         self.c.print(keys)
@@ -232,8 +281,11 @@ class UI:
         with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8") as f:
             f.write(text)
             name = f.name
-        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or (
-            "notepad" if os.name == "nt" else "nano" if shutil.which("nano") else "vi")
+        editor = (
+            os.environ.get("VISUAL")
+            or os.environ.get("EDITOR")
+            or ("notepad" if os.name == "nt" else "nano" if shutil.which("nano") else "vi")
+        )
         self.note(f"Opening {editor}. Save and close the editor to continue.", indent=1)
         try:
             subprocess.run([*shlex.split(editor, posix=os.name != "nt"), name], check=False)
@@ -261,13 +313,19 @@ class UI:
                 table.add_column(col, overflow="fold")
             for r in shown:
                 label, style = STATUS.get(r.status, (r.status, ""))
-                table.add_row(Text(label, style=style), Text(r.livebook), Text(f"{r.lu} {r.title}".strip()),
-                              Text(r.kind), Text(r.detail))
+                table.add_row(
+                    Text(label, style=style),
+                    Text(r.livebook),
+                    Text(f"{r.lu} {r.title}".strip()),
+                    Text(r.kind),
+                    Text(r.detail),
+                )
             self.c.print(table)
         manual = [r for r in res if r.status == "manual"]
         if manual:
-            self.say("Needs you: finish these on the portal, or add their links to submissions.yaml and run again.",
-                     "warn")
+            self.say(
+                "Needs you: finish these on the portal, or add their links to submissions.yaml and run again.", "warn"
+            )
         self.say(f"CSV log: {runlog.csv_path}", "muted")
         if report_path:
             self.say(f"Report:  {report_path}", "muted")

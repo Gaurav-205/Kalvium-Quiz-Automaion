@@ -21,7 +21,6 @@ class GitHubError(Exception):
     pass
 
 
-
 class GitHub:
     def __init__(self, token: str, api_url: str = "https://api.github.com", timeout: float = 30):
         self.token = token
@@ -37,17 +36,21 @@ class GitHub:
             return None
         return cls(token, g.get("api_url") or "https://api.github.com")
 
-
     def request(self, method: str, path: str, body: dict | None = None):
         """Returns (status, json). Raises GitHubError on HTTP errors other than 404/409/422."""
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.api + path, data=data, method=method, headers={
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "kalbot",
-            **({"Content-Type": "application/json"} if data else {}),
-        })
+        req = urllib.request.Request(
+            self.api + path,
+            data=data,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "kalbot",
+                **({"Content-Type": "application/json"} if data else {}),
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
@@ -87,8 +90,11 @@ class GitHub:
         return name
 
     def create_repo(self, name: str, description: str, private: bool) -> dict:
-        status, data, _ = self.request("POST", "/user/repos", {
-            "name": name, "description": description[:350], "private": private, "auto_init": True})
+        status, data, _ = self.request(
+            "POST",
+            "/user/repos",
+            {"name": name, "description": description[:350], "private": private, "auto_init": True},
+        )
         if status != 201:
             raise GitHubError(f"could not create repo {name}: {data.get('message', status)}")
         return data
@@ -96,7 +102,7 @@ class GitHub:
     def commit_files(self, owner: str, repo: str, files: dict[str, str], message: str, branch: str) -> str:
         """Add/replace files on `branch` in a single commit; returns the commit sha."""
         ref = None
-        for _ in range(8):   # a just-created repo's first commit can take a moment to appear
+        for _ in range(8):  # a just-created repo's first commit can take a moment to appear
             status, ref, _ = self.request("GET", f"/repos/{owner}/{repo}/git/ref/heads/{branch}")
             if status == 200:
                 break
@@ -105,14 +111,19 @@ class GitHub:
             raise GitHubError(f"branch {branch} of {owner}/{repo} not found")
         base = ref["object"]["sha"]
         _, commit, _ = self.request("GET", f"/repos/{owner}/{repo}/git/commits/{base}")
-        status, tree, _ = self.request("POST", f"/repos/{owner}/{repo}/git/trees", {
-            "base_tree": commit["tree"]["sha"],
-            "tree": [{"path": p, "mode": "100644", "type": "blob", "content": c} for p, c in files.items()],
-        })
+        status, tree, _ = self.request(
+            "POST",
+            f"/repos/{owner}/{repo}/git/trees",
+            {
+                "base_tree": commit["tree"]["sha"],
+                "tree": [{"path": p, "mode": "100644", "type": "blob", "content": c} for p, c in files.items()],
+            },
+        )
         if status != 201:
             raise GitHubError(f"could not upload files: {tree.get('message', status)}")
-        status, new, _ = self.request("POST", f"/repos/{owner}/{repo}/git/commits", {
-            "message": message, "tree": tree["sha"], "parents": [base]})
+        status, new, _ = self.request(
+            "POST", f"/repos/{owner}/{repo}/git/commits", {"message": message, "tree": tree["sha"], "parents": [base]}
+        )
         if status != 201:
             raise GitHubError(f"could not create the commit: {new.get('message', status)}")
         status, out, _ = self.request("PATCH", f"/repos/{owner}/{repo}/git/refs/heads/{branch}", {"sha": new["sha"]})
@@ -121,9 +132,10 @@ class GitHub:
         return new["sha"]
 
     def enable_pages(self, owner: str, repo: str, branch: str) -> str:
-        status, data, _ = self.request("POST", f"/repos/{owner}/{repo}/pages",
-                                       {"source": {"branch": branch, "path": "/"}})
-        if status == 409:   # already enabled
+        status, data, _ = self.request(
+            "POST", f"/repos/{owner}/{repo}/pages", {"source": {"branch": branch, "path": "/"}}
+        )
+        if status == 409:  # already enabled
             status, data, _ = self.request("GET", f"/repos/{owner}/{repo}/pages")
         if status not in (200, 201) or not data.get("html_url"):
             raise GitHubError(f"could not enable GitHub Pages: {data.get('message', status)}")
@@ -144,8 +156,9 @@ class GitHub:
             time.sleep(5)
 
 
-def publish(gh: GitHub, name: str, description: str, files: dict[str, str], *, private: bool,
-            pages: bool, wait_s: float = 0) -> dict:
+def publish(
+    gh: GitHub, name: str, description: str, files: dict[str, str], *, private: bool, pages: bool, wait_s: float = 0
+) -> dict:
     """Create the repo, push the files and optionally enable Pages. Returns the links."""
     data = gh.create_repo(name, description, private)
     owner, branch = data["owner"]["login"], data.get("default_branch") or "main"

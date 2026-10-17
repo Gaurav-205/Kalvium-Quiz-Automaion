@@ -32,13 +32,19 @@ It never half-submits. If an assignment asks for something kalbot doesn't have (
 a fork-and-PR task), nothing in that assignment is submitted. The run summary lists it under
 **Needs you** with the exact fix.
 
+### Execution Pipeline
+
 ```mermaid
-flowchart LR
-    A[Livebooks] --> B[Learning Path] --> C{LU page}
-    C -->|quiz| Q["read question → LLM picks →<br/>click + verify → Next / Submit →<br/>score → retake once if failed"]
-    C -->|answer boxes, editor, links| T["draft every box → you review →<br/>fill + verify → run tests & fix →<br/>Submit → confirm"]
-    C -->|missing link / unknown| M[Needs you: listed with the fix]
-    C -->|reading only| R[No task found]
+flowchart TD
+    Init[1. Init & Config Validation] --> Auth[2. Authentication / Session Setup]
+    Auth --> Disc[3. Livebooks & LU Discovery]
+    Disc --> Idemp{4. Idempotency Check<br/>Learning Path + state.json}
+    Idemp -->|already done| Skip[Skip & Record]
+    Idemp -->|needs work| Solver[5. Solver: Quiz / Written / Coding / Links]
+    Solver --> Verify[6. Verification & State Recording]
+    Verify --> Audit[7. CSV, JSON & HTML Report Generation]
+    Skip --> Audit
+    Audit --> Teardown[8. Safe Browser Cleanup & Summary]
 ```
 
 ## Setup

@@ -15,10 +15,14 @@ WRITE_SYSTEM = (
     "Follow every instruction, required section and rubric item in the assignment. "
     "Reply with the answer text only: no preamble and no word count. {format}"
 )
-PLAIN_FORMAT = ("No Markdown headings or bold text. Separate paragraphs with a blank line. Use simple '- ' "
-                "bullets only if the question asks for a list.")
-MARKDOWN_FORMAT = ("The answer box is a Markdown editor: use Markdown headings, lists and tables where they "
-                   "make the answer clearer, matching any structure the assignment asks for.")
+PLAIN_FORMAT = (
+    "No Markdown headings or bold text. Separate paragraphs with a blank line. Use simple '- ' "
+    "bullets only if the question asks for a list."
+)
+MARKDOWN_FORMAT = (
+    "The answer box is a Markdown editor: use Markdown headings, lists and tables where they "
+    "make the answer clearer, matching any structure the assignment asks for."
+)
 
 CODE_SYSTEM = (
     "You are an expert programmer solving a coding exercise from a college course on the Kalvium learning "
@@ -43,8 +47,10 @@ PROJECT_JSON = (
 
 
 def material_block(text: str) -> str:
-    return ("Course material from the LU page, for reference (it may include instructions, "
-            "examples and unrelated page text):\n<<<\n" + text.strip() + "\n>>>")
+    return (
+        "Course material from the LU page, for reference (it may include instructions, "
+        "examples and unrelated page text):\n<<<\n" + text.strip() + "\n>>>"
+    )
 
 
 def quiz_prompt(q, course: str = "", previous: list[int] | None = None) -> str:
@@ -74,13 +80,23 @@ def quiz_prompt(q, course: str = "", previous: list[int] | None = None) -> str:
 
 
 def write_prompt(spec, course: str = "") -> str:
-    lines = [f"Course and assignment: {course}" if course else "", "",
-             "Question / prompt for this answer box:", spec.question.strip() or "(see the course material)"]
+    lines = [
+        f"Course and assignment: {course}" if course else "",
+        "",
+        "Question / prompt for this answer box:",
+        spec.question.strip() or "(see the course material)",
+    ]
     if spec.label and spec.label not in spec.question:
         lines += ["", f"Answer box label: {spec.label}"]
     if spec.existing:
-        lines += ["", "The box already contains the text below: a template to fill in, or a partial draft. "
-                  "Build on it (fill in the template, or complete and polish the draft):", "<<<", spec.existing, ">>>"]
+        lines += [
+            "",
+            "The box already contains the text below: a template to fill in, or a partial draft. "
+            "Build on it (fill in the template, or complete and polish the draft):",
+            "<<<",
+            spec.existing,
+            ">>>",
+        ]
     if spec.others:
         lines += ["", "Other answer boxes in this assignment (answer only this one, don't repeat them):"]
         lines += [f"- {o}" for o in spec.others]
@@ -97,30 +113,59 @@ def write_prompt(spec, course: str = "") -> str:
 
 
 def revise_words_prompt(base: str, draft: str, n: int, lo: int, hi: int) -> str:
-    return (f"{base}\n\nYour draft below has {n} words, but it must be between {lo} and {hi} words. "
-            f"Rewrite it to fit, keeping the substance.\n\nDraft:\n{draft}")
+    return (
+        f"{base}\n\nYour draft below has {n} words, but it must be between {lo} and {hi} words. "
+        f"Rewrite it to fit, keeping the substance.\n\nDraft:\n{draft}"
+    )
 
 
 def code_prompt(spec, course: str = "", previous: str = "", feedback: str = "") -> str:
-    lines = [f"Course and exercise: {course}" if course else "", "", "Problem:",
-             spec.question.strip() or "(see the course material)"]
-    lines += ["", f"Language: {spec.language}" if spec.language else
-              "Language: use the language of the starter code (or Python if there is none)."]
+    lines = [
+        f"Course and exercise: {course}" if course else "",
+        "",
+        "Problem:",
+        spec.question.strip() or "(see the course material)",
+    ]
+    lines += [
+        "",
+        f"Language: {spec.language}"
+        if spec.language
+        else "Language: use the language of the starter code (or Python if there is none).",
+    ]
     if spec.starter.strip():
-        lines += ["", "Starter code currently in the editor (complete it; keep its signatures):",
-                  "```", spec.starter.rstrip(), "```"]
+        lines += [
+            "",
+            "Starter code currently in the editor (complete it; keep its signatures):",
+            "```",
+            spec.starter.rstrip(),
+            "```",
+        ]
     if previous:
-        lines += ["", "Your previous code:", "```", previous.rstrip(), "```",
-                  "", "Running it on the portal produced this output:", "```", feedback.strip()[:4000], "```",
-                  "", "Fix the code so every test passes."]
+        lines += [
+            "",
+            "Your previous code:",
+            "```",
+            previous.rstrip(),
+            "```",
+            "",
+            "Running it on the portal produced this output:",
+            "```",
+            feedback.strip()[:4000],
+            "```",
+            "",
+            "Fix the code so every test passes.",
+        ]
     lines += ["", "Reply with the complete code in one fenced code block."]
     return "\n".join(lines).strip()
 
 
 def project_prompt(spec, course: str = "") -> str:
-    lines = [f"Course and assignment: {course}" if course else "", "",
-             "The assignment asks for a GitHub repository link. What the page says about it:",
-             spec.question.strip() or "(see the course material)"]
+    lines = [
+        f"Course and assignment: {course}" if course else "",
+        "",
+        "The assignment asks for a GitHub repository link. What the page says about it:",
+        spec.question.strip() or "(see the course material)",
+    ]
     if spec.other_links:
         lines += ["", "Other links this assignment also asks for: " + ", ".join(spec.other_links)]
     lines += [

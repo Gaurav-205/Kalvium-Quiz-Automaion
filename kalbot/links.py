@@ -17,18 +17,38 @@ import yaml
 
 log = logging.getLogger("kalbot.links")
 
-KINDS = ("pr", "video", "live", "github", "link")   # also the tie-break order
-KIND_NAMES = {"github": "GitHub repository", "pr": "pull request", "live": "live site",
-              "video": "video", "link": "link"}
-VIDEO_HOSTS = ("youtube.com", "youtu.be", "loom.com", "vimeo.com", "drive.google.com", "dropbox.com",
-               "onedrive.live.com", "1drv.ms", "sharepoint.com", "streamable.com", "wistia.com", "screencast.com")
+KINDS = ("pr", "video", "live", "github", "link")  # also the tie-break order
+KIND_NAMES = {
+    "github": "GitHub repository",
+    "pr": "pull request",
+    "live": "live site",
+    "video": "video",
+    "link": "link",
+}
+VIDEO_HOSTS = (
+    "youtube.com",
+    "youtu.be",
+    "loom.com",
+    "vimeo.com",
+    "drive.google.com",
+    "dropbox.com",
+    "onedrive.live.com",
+    "1drv.ms",
+    "sharepoint.com",
+    "streamable.com",
+    "wistia.com",
+    "screencast.com",
+)
 
 
 def classify(label: str, prompt: str, patterns: dict) -> str:
     """Which link a field wants: github | pr | live | video | link."""
     for text in (label, prompt[-400:]):
-        scores = {k: sum(bool(re.search(p, text or "", re.I)) for p in patterns.get(f"link_{k}", []))
-                  for k in KINDS if k != "link"}
+        scores = {
+            k: sum(bool(re.search(p, text or "", re.I)) for p in patterns.get(f"link_{k}", []))
+            for k in KINDS
+            if k != "link"
+        }
         best = max(scores.values())
         if best:
             return next(k for k in KINDS if scores.get(k) == best)
@@ -36,8 +56,11 @@ def classify(label: str, prompt: str, patterns: dict) -> str:
 
 
 STRONG_LINK = re.compile(r"\b(url|link)\b|https?://", re.I)
-QUESTION = re.compile(r"\?|^\s*(describe|explain|what|why|how|which|who|when|where|name|list|define|write|"
-                      r"give|state|mention)\b", re.I)
+QUESTION = re.compile(
+    r"\?|^\s*(describe|explain|what|why|how|which|who|when|where|name|list|define|write|"
+    r"give|state|mention)\b",
+    re.I,
+)
 
 
 def is_link_field(label: str, prompt: str, input_type: str, patterns: dict) -> bool:
@@ -48,9 +71,10 @@ def is_link_field(label: str, prompt: str, input_type: str, patterns: dict) -> b
     """
     if input_type == "url" or STRONG_LINK.search(label or ""):
         return True
-    if not QUESTION.search(label or "") and any(re.search(p, label or "", re.I)
-                                                for p in patterns.get("link_field", [])):
-        return True   # a short label such as "Pull Request" or "Video", not a question that mentions one
+    if not QUESTION.search(label or "") and any(
+        re.search(p, label or "", re.I) for p in patterns.get("link_field", [])
+    ):
+        return True  # a short label such as "Pull Request" or "Video", not a question that mentions one
     return bool(STRONG_LINK.search((prompt or "")[-300:]))
 
 
@@ -100,8 +124,14 @@ class LinkBook:
                     if why:
                         problems.append(f"{path.name} entry {i + 1} ({e['lu']}): {kind}: {why}")
             for k in ("file", "pdf"):
-                if e.get(k) and not Path(e[k]).exists():
-                    problems.append(f"{path.name} entry {i + 1} ({e['lu']}): {k}: file not found ({e[k]})")
+                if e.get(k):
+                    target_file = Path(e[k])
+                    if not target_file.is_absolute() and path.parent:
+                        resolved = path.parent / target_file
+                    else:
+                        resolved = target_file
+                    if not (resolved.exists() or target_file.exists()):
+                        problems.append(f"{path.name} entry {i + 1} ({e['lu']}): {k}: file not found ({e[k]})")
             entries.append(e)
         return cls(entries, path, problems)
 
@@ -130,7 +160,7 @@ class LinkBook:
 
 
 class State:
-    """Small JSON memory between runs (repos created per LU)."""
+    """Persistent JSON journal between runs (repos created and tasks completed per LU)."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -149,6 +179,23 @@ class State:
 
     def save_repo(self, livebook: str, lu: str, info: dict) -> None:
         self.data.setdefault("repos", {})[self.key(livebook, lu)] = info
+        self._flush()
+
+    def submission(self, livebook: str, lu: str) -> dict:
+        """Read previous submission record for this LU."""
+        return dict(self.data.get("submissions", {}).get(self.key(livebook, lu), {}))
+
+    def is_completed(self, livebook: str, lu: str) -> bool:
+        """True if an earlier run successfully completed and submitted this LU."""
+        sub = self.submission(livebook, lu)
+        return bool(sub.get("status") in ("submitted", "done"))
+
+    def save_submission(self, livebook: str, lu: str, info: dict) -> None:
+        """Record completed LU submission to ensure idempotency across runs."""
+        self.data.setdefault("submissions", {})[self.key(livebook, lu)] = info
+        self._flush()
+
+    def _flush(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")

@@ -31,9 +31,9 @@ class LLMError(Exception):
 class Request:
     system: str
     prompt: str
-    material: str = ""        # shared LU text; providers put it in a cacheable prefix
+    material: str = ""  # shared LU text; providers put it in a cacheable prefix
     json: bool = False
-    kind: str = "quiz"        # quiz | written | coding: picks effort and output budget
+    kind: str = "quiz"  # quiz | written | coding: picks effort and output budget
 
 
 # --------------------------------------------------------------------------- providers
@@ -96,9 +96,13 @@ class GeminiProvider(LLMProvider):
                 quota = e.code == 429 or "resource_exhausted" in text or "quota" in text
                 busy = e.code in (500, 502, 503, 504) or "overloaded" in text
                 if (quota or busy) and len(self._models) > 1 and rotations < len(self._models) - 1:
-                    rotations += 1   # each model has its own free-tier quota: try the next one
-                    log.warning("Gemini model %s %s; switching to %s", model,
-                                "is out of quota" if quota else "is overloaded", self._models[1])
+                    rotations += 1  # each model has its own free-tier quota: try the next one
+                    log.warning(
+                        "Gemini model %s %s; switching to %s",
+                        model,
+                        "is out of quota" if quota else "is overloaded",
+                        self._models[1],
+                    )
                     self._models.append(self._models.pop(0))
                     continue
                 raise
@@ -127,11 +131,16 @@ class ClaudeProvider(LLMProvider):
 
     def complete(self, req: Request) -> str:
         system = [{"type": "text", "text": req.system}]
-        if req.material:   # identical for every question of an LU, so it is served from the cache
-            system.append({"type": "text", "text": prompts.material_block(req.material),
-                           "cache_control": {"type": "ephemeral"}})
-        kw = dict(model=self._model, max_tokens=_budget(self._cfg, req.kind), system=system,
-                  messages=[{"role": "user", "content": req.prompt}])
+        if req.material:  # identical for every question of an LU, so it is served from the cache
+            system.append(
+                {"type": "text", "text": prompts.material_block(req.material), "cache_control": {"type": "ephemeral"}}
+            )
+        kw = dict(
+            model=self._model,
+            max_tokens=_budget(self._cfg, req.kind),
+            system=system,
+            messages=[{"role": "user", "content": req.prompt}],
+        )
         effort = str(self._effort.get(req.kind) or "").strip()
         if effort and "haiku" not in self._model:
             kw["output_config"] = {"effort": effort}
@@ -148,7 +157,8 @@ class ClaudeProvider(LLMProvider):
         if self._fallback:
             try:
                 with self._client.beta.messages.stream(
-                        **kw, betas=["server-side-fallback-2026-07-01"], fallbacks="default") as s:
+                    **kw, betas=["server-side-fallback-2026-07-01"], fallbacks="default"
+                ) as s:
                     return s.get_final_message()
             except self._anthropic.BadRequestError as e:
                 if "fallback" not in str(e).lower():
@@ -175,7 +185,6 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
 windows_user_env = _win_env
 
 
-
 def make_provider(llm_cfg: dict) -> LLMProvider:
     name = str(llm_cfg["provider"]).lower().strip()
     if name not in PROVIDERS:
@@ -190,11 +199,11 @@ def make_provider(llm_cfg: dict) -> LLMProvider:
         key = (os.environ.get(env, "") or windows_user_env(env)).strip() if env else ""
         if not key:
             raise LLMError(
-                fatal=True, msg=f"{env} is not set. Add it to the .env file in the kalbot folder "
-                f"(see .env.example), or on Windows run:  setx {env} \"<your key>\"  and open a new terminal."
+                fatal=True,
+                msg=f"{env} is not set. Add it to the .env file in the kalbot folder "
+                f'(see .env.example), or on Windows run:  setx {env} "<your key>"  and open a new terminal.',
             )
     return cls(model, key, llm_cfg, fallbacks)
-
 
 
 # --------------------------------------------------------------------------- data
@@ -221,12 +230,12 @@ class Answer:
 class WriteSpec:
     question: str
     label: str = ""
-    words: tuple[int, int] | None = (120, 250)   # None: as long as the assignment needs
+    words: tuple[int, int] | None = (120, 250)  # None: as long as the assignment needs
     short: bool = False
     max_chars: int = 200
     others: list[str] = field(default_factory=list)
-    existing: str = ""        # a template or partial draft already in the box
-    markdown: bool = False    # the box is a Markdown editor
+    existing: str = ""  # a template or partial draft already in the box
+    markdown: bool = False  # the box is a Markdown editor
 
 
 @dataclass
@@ -267,7 +276,7 @@ def json_object(text: str) -> dict:
     if start == -1 or end <= start:
         raise ValueError("no JSON object in reply")
     try:
-        data = json.loads(s[start:end + 1])
+        data = json.loads(s[start : end + 1])
     except json.JSONDecodeError as e:
         raise ValueError(f"invalid JSON: {e.msg}") from None
     if not isinstance(data, dict):
@@ -329,7 +338,7 @@ def clean_text(text: str) -> str:
         s = m.group(1).strip()
     s = re.sub(r"^(here is|here's)[^\n]*:\s*\n+", "", s, flags=re.I)
     s = re.sub(r"^\s*(answer|response)\s*:\s*", "", s, flags=re.I)
-    s = re.sub(r"\A#{1,6}\s+[^\n]*\n+", "", s)          # a title line
+    s = re.sub(r"\A#{1,6}\s+[^\n]*\n+", "", s)  # a title line
     s = re.sub(r"^#{1,6}\s+", "", s, flags=re.M)
     s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
@@ -340,7 +349,7 @@ def fit_chars(text: str, limit: int) -> str:
     if not limit or len(text) <= limit:
         return text
     cut = text[:limit]
-    if not text[limit].isspace() and " " in cut[limit // 2:]:   # don't end mid-word
+    if not text[limit].isspace() and " " in cut[limit // 2 :]:  # don't end mid-word
         cut = cut.rsplit(" ", 1)[0]
     return cut.rstrip(" ,;:-")
 
@@ -428,8 +437,7 @@ class LLM:
 
     # ---------------------------------------------------------------- quiz
 
-    def choose(self, q: Question, course: str = "", material: str = "",
-               previous: list[int] | None = None) -> Answer:
+    def choose(self, q: Question, course: str = "", material: str = "", previous: list[int] | None = None) -> Answer:
         if len(q.options) < 2:
             raise LLMError("fewer than two options extracted")
         prompt = prompts.quiz_prompt(q, course, previous)
@@ -438,9 +446,12 @@ class LLM:
             return parse_answer(self.ask(req), len(q.options), q.multi)
         except ValueError as e:
             log.warning("Invalid LLM reply (%s); retrying once", e)
-        req.prompt = (f"{prompt}\n\nYour previous reply was invalid. Reply with ONLY the JSON object "
-                      f"{prompts.QUIZ_JSON} using indices 0..{len(q.options) - 1}"
-                      + ("" if q.multi else " and exactly one index") + ".")
+        req.prompt = (
+            f"{prompt}\n\nYour previous reply was invalid. Reply with ONLY the JSON object "
+            f"{prompts.QUIZ_JSON} using indices 0..{len(q.options) - 1}"
+            + ("" if q.multi else " and exactly one index")
+            + "."
+        )
         reply = self.ask(req)
         try:
             return parse_answer(reply, len(q.options), q.multi)
@@ -455,10 +466,11 @@ class LLM:
 
     def write(self, spec: WriteSpec, course: str = "", material: str = "") -> str:
         system = prompts.WRITE_SYSTEM.format(
-            style=self.style, format=prompts.MARKDOWN_FORMAT if spec.markdown else prompts.PLAIN_FORMAT)
+            style=self.style, format=prompts.MARKDOWN_FORMAT if spec.markdown else prompts.PLAIN_FORMAT
+        )
         prompt = prompts.write_prompt(spec, course)
         req = Request(system, prompt, self.material(material), kind="written")
-        tidy = (lambda t: t.strip()) if spec.markdown else clean_text   # Markdown boxes keep their formatting
+        tidy = (lambda t: t.strip()) if spec.markdown else clean_text  # Markdown boxes keep their formatting
         text = tidy(self.ask(req))
         if not text:
             text = tidy(self.ask(req))
@@ -480,10 +492,13 @@ class LLM:
 
     # ---------------------------------------------------------------- code
 
-    def code(self, spec: CodeSpec, course: str = "", material: str = "",
-             previous: str = "", feedback: str = "") -> str:
-        req = Request(prompts.CODE_SYSTEM, prompts.code_prompt(spec, course, previous, feedback),
-                      self.material(material), kind="coding")
+    def code(self, spec: CodeSpec, course: str = "", material: str = "", previous: str = "", feedback: str = "") -> str:
+        req = Request(
+            prompts.CODE_SYSTEM,
+            prompts.code_prompt(spec, course, previous, feedback),
+            self.material(material),
+            kind="coding",
+        )
         code = extract_code(self.ask(req))
         if not code.strip():
             code = extract_code(self.ask(req))

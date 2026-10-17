@@ -37,16 +37,37 @@ def Q(text, options, answer, code="", multi=False):
 
 
 QUIZZES = {
-    ("2505", "11"): [Q(f"Philosophy warm-up question {i}?", ["Alpha", "Beta", "Gamma", "Delta"], [i % 4]) for i in range(1, 6)],
+    ("2505", "11"): [
+        Q(f"Philosophy warm-up question {i}?", ["Alpha", "Beta", "Gamma", "Delta"], [i % 4]) for i in range(1, 6)
+    ],
     ("2505", "12"): [
-        Q("Who is known for the method of questioning called elenchus?", ["Plato", "Socrates", "Aristotle", "Kant"], [1]),
-        Q("The Socratic method mainly aims to:", ["Win debates", "Expose contradictions and clarify ideas",
-                                                  "Memorise facts", "Avoid questions"], [1]),
-        Q("What does this snippet print?", ["0", "1", "2", "Error"], [2],
-          code="def ask(n):\n    if n == 0:\n        return 0\n    return 1 + ask(n - 1)\n\nprint(ask(2))"),
-        Q("Which of these are Socratic dialogues? Select all that apply.",
-          ["Apology", "Republic", "Leviathan", "Critique of Pure Reason"], [0, 1], multi=True),
-        Q("'I know that I know nothing' expresses:", ["Dogmatism", "Socratic ignorance", "Nihilism", "Empiricism"], [1]),
+        Q(
+            "Who is known for the method of questioning called elenchus?",
+            ["Plato", "Socrates", "Aristotle", "Kant"],
+            [1],
+        ),
+        Q(
+            "The Socratic method mainly aims to:",
+            ["Win debates", "Expose contradictions and clarify ideas", "Memorise facts", "Avoid questions"],
+            [1],
+        ),
+        Q(
+            "What does this snippet print?",
+            ["0", "1", "2", "Error"],
+            [2],
+            code="def ask(n):\n    if n == 0:\n        return 0\n    return 1 + ask(n - 1)\n\nprint(ask(2))",
+        ),
+        Q(
+            "Which of these are Socratic dialogues? Select all that apply.",
+            ["Apology", "Republic", "Leviathan", "Critique of Pure Reason"],
+            [0, 1],
+            multi=True,
+        ),
+        Q(
+            "'I know that I know nothing' expresses:",
+            ["Dogmatism", "Socratic ignorance", "Nihilism", "Empiricism"],
+            [1],
+        ),
     ],
     ("2505", "21"): [
         Q("Virtue ethics is most associated with:", ["Aristotle", "Bentham", "Mill", "Hobbes"], [0]),
@@ -59,79 +80,167 @@ QUIZZES = {
         Q("Utilitarianism judges actions by their:", ["Intentions", "Consequences", "Rules", "Authors"], [1]),
         Q("Who wrote 'Utilitarianism' (1863)?", ["J. S. Mill", "Kant", "Rawls", "Locke"], [0]),
         Q("Bentham's 'felicific calculus' measures:", ["Duties", "Pleasure and pain", "Rights", "Virtues"], [1]),
-        Q("Act vs rule utilitarianism differ on:", ["Whether consequences matter",
-                                                    "Whether to evaluate single acts or general rules",
-                                                    "Whether pleasure is good", "Nothing"], [1]),
-        Q("A common objection to utilitarianism concerns:", ["Justice for individuals", "Grammar",
-                                                            "Astronomy", "Colour theory"], [0]),
+        Q(
+            "Act vs rule utilitarianism differ on:",
+            [
+                "Whether consequences matter",
+                "Whether to evaluate single acts or general rules",
+                "Whether pleasure is good",
+                "Nothing",
+            ],
+            [1],
+        ),
+        Q(
+            "A common objection to utilitarianism concerns:",
+            ["Justice for individuals", "Grammar", "Astronomy", "Colour theory"],
+            [0],
+        ),
     ],
     ("2506", "11"): [
         Q("Array index access is:", ["O(1)", "O(n)", "O(log n)", "O(n^2)"], [0]),
         Q("What is printed?", ["[1, 2]", "[2, 1]", "[1]", "[]"], [0], code="a = [1]\na.append(2)\nprint(a)"),
         Q("Inserting at the front of a dynamic array is:", ["O(1)", "O(n)", "O(log n)", "Impossible"], [1]),
-        Q("Which are true about arrays? Select all that apply.",
-          ["Contiguous memory", "Constant-time append (amortised) for dynamic arrays", "Always sorted", "Linked nodes"],
-          [0, 1], multi=True),
+        Q(
+            "Which are true about arrays? Select all that apply.",
+            [
+                "Contiguous memory",
+                "Constant-time append (amortised) for dynamic arrays",
+                "Always sorted",
+                "Linked nodes",
+            ],
+            [0, 1],
+            multi=True,
+        ),
         Q("Python lists are:", ["Linked lists", "Dynamic arrays", "Hash maps", "Trees"], [1]),
     ],
     ("2506", "12"): [Q(f"Linked list question {i}?", ["A", "B", "C", "D"], [0]) for i in range(1, 6)],
-    ("2506", "14"): [Q(f"Queue question {i}: which end does dequeue use?", ["Front", "Back", "Middle", "Any"], [0])
-                     for i in range(1, 6)],
+    ("2506", "14"): [
+        Q(f"Queue question {i}: which end does dequeue use?", ["Front", "Back", "Middle", "Any"], [0])
+        for i in range(1, 6)
+    ],
     ("2506", "13"): [Q(f"Stack question {i}?", ["A", "B", "C", "D"], [0]) for i in range(1, 6)],
 }
 
 # ungraded "check your understanding" questions inside a lesson, before its graded quiz
 CHECKS = {
-    ("2506", "14"): [Q("Check: a queue is FIFO or LIFO?", ["FIFO", "LIFO", "Both", "Neither"], [0]),
-                     Q("Check: enqueue adds at the?", ["Back", "Front", "Middle", "Top"], [0])],
+    ("2506", "14"): [
+        Q("Check: a queue is FIFO or LIFO?", ["FIFO", "LIFO", "Both", "Neither"], [0]),
+        Q("Check: enqueue adds at the?", ["Back", "Front", "Middle", "Top"], [0]),
+    ],
 }
 
 FIZZ_STARTER = "def fizzbuzz(n):\n    # return a list of strings for 1..n\n    pass\n"
 
 
 def F(name, type, question="", label="", placeholder="", value="", fid=""):
-    return {"name": name, "type": type, "question": question, "label": label, "placeholder": placeholder,
-            "value": value, "fid": fid}
+    return {
+        "name": name,
+        "type": type,
+        "question": question,
+        "label": label,
+        "placeholder": placeholder,
+        "value": value,
+        "fid": fid,
+    }
 
 
-BRIEF = ("Problem Statement\nCould a highly advanced AI ever be conscious? Write a case study that takes a "
-         "position, explains the hard problem of consciousness, and evaluates one argument for and one against "
-         "machine consciousness (for example, whether running code could ever amount to experience). "
-         "Structure it with headings.")
+BRIEF = (
+    "Problem Statement\nCould a highly advanced AI ever be conscious? Write a case study that takes a "
+    "position, explains the hard problem of consciousness, and evaluates one argument for and one against "
+    "machine consciousness (for example, whether running code could ever amount to experience). "
+    "Structure it with headings."
+)
 
 
 # Assignments. fields: name, widget type, the question above it, its label/placeholder.
 TASKS = {
-    ("2505", "13"): {"fields": [F("answer", "textarea", "Reflect on what 'know thyself' means for you as a "
-                                  "learner. Write your answer (minimum 200 words).", placeholder="Type your answer")]},
-    ("2505", "22"): {"fields": [   # like the portal's form: ids, placeholders, no <label>
-        F("pr", "url", "Open a pull request with your data-ethics checker and paste its link.",
-          placeholder="https://github.com/your-username/your-repo/pull/1", fid="pr"),
-        F("video", "url", "", placeholder="Google Drive link", fid="video"),
-    ]},
-    ("2505", "25"): {"workspace": True, "brief": BRIEF, "fields": [
-        F("answer", "md", "", placeholder="Write your answer in Markdown")]},
-    ("2507", "11"): {"confirm": True, "fields": [
-        F("q1", "rich", "1. What did you learn about semantic HTML this week? (50-80 words)", "Answer 1"),
-        F("q2", "plain_rich", "2. Name one accessibility habit you will keep. Answer in about 40 words.", "Answer 2"),
-    ]},
-    ("2507", "12"): {"run": True, "fields": [
-        F("code", "cm5", "Write fizzbuzz(n) returning a list of strings for 1..n: 'Fizz' for multiples of 3, "
-          "'Buzz' for multiples of 5, 'FizzBuzz' for both, else the number.", value=FIZZ_STARTER)]},
-    ("2507", "13"): {"start": True, "fields": [
-        F("code", "code_textarea", "Write a function add(a, b) that returns the sum of two numbers.",
-          value="def add(a, b):\n    ...\n")]},
-    ("2507", "14"): {"fields": [
-        F("repo", "url", "Build a personal portfolio website (HTML/CSS/JS) with an About and a Projects section.",
-          "GitHub repository link", "https://github.com/..."),
-        F("live", "url", "", "Deployed website link", "https://..."),
-        F("video", "url", "", "Video walkthrough link (Loom/YouTube)", "https://..."),
-    ]},
+    ("2505", "13"): {
+        "fields": [
+            F(
+                "answer",
+                "textarea",
+                "Reflect on what 'know thyself' means for you as a learner. Write your answer (minimum 200 words).",
+                placeholder="Type your answer",
+            )
+        ]
+    },
+    ("2505", "22"): {
+        "fields": [  # like the portal's form: ids, placeholders, no <label>
+            F(
+                "pr",
+                "url",
+                "Open a pull request with your data-ethics checker and paste its link.",
+                placeholder="https://github.com/your-username/your-repo/pull/1",
+                fid="pr",
+            ),
+            F("video", "url", "", placeholder="Google Drive link", fid="video"),
+        ]
+    },
+    ("2505", "25"): {
+        "workspace": True,
+        "brief": BRIEF,
+        "fields": [F("answer", "md", "", placeholder="Write your answer in Markdown")],
+    },
+    ("2507", "11"): {
+        "confirm": True,
+        "fields": [
+            F("q1", "rich", "1. What did you learn about semantic HTML this week? (50-80 words)", "Answer 1"),
+            F(
+                "q2",
+                "plain_rich",
+                "2. Name one accessibility habit you will keep. Answer in about 40 words.",
+                "Answer 2",
+            ),
+        ],
+    },
+    ("2507", "12"): {
+        "run": True,
+        "fields": [
+            F(
+                "code",
+                "cm5",
+                "Write fizzbuzz(n) returning a list of strings for 1..n: 'Fizz' for multiples of 3, "
+                "'Buzz' for multiples of 5, 'FizzBuzz' for both, else the number.",
+                value=FIZZ_STARTER,
+            )
+        ],
+    },
+    ("2507", "13"): {
+        "start": True,
+        "fields": [
+            F(
+                "code",
+                "code_textarea",
+                "Write a function add(a, b) that returns the sum of two numbers.",
+                value="def add(a, b):\n    ...\n",
+            )
+        ],
+    },
+    ("2507", "14"): {
+        "fields": [
+            F(
+                "repo",
+                "url",
+                "Build a personal portfolio website (HTML/CSS/JS) with an About and a Projects section.",
+                "GitHub repository link",
+                "https://github.com/...",
+            ),
+            F("live", "url", "", "Deployed website link", "https://..."),
+            F("video", "url", "", "Video walkthrough link (Loom/YouTube)", "https://..."),
+        ]
+    },
     ("2507", "15"): {"fields": [F("short", "text", "", "What does HTML stand for?")]},
     ("2507", "16"): {"fields": [F("video", "url", "Record a 2-minute demo of your portfolio.", "Demo video link")]},
-    ("2507", "17"): {"fields": [
-        F("code", "monaco", "Two Sum: read n, then n integers, then a target. Print the 0-based indices i < j of "
-          "the two numbers that add up to the target, separated by a space.")]},
+    ("2507", "17"): {
+        "fields": [
+            F(
+                "code",
+                "monaco",
+                "Two Sum: read n, then n integers, then a target. Print the 0-based indices i < j of "
+                "the two numbers that add up to the target, separated by a space.",
+            )
+        ]
+    },
 }
 
 # kind: quiz variant or task type; start: has a Start screen; tab: quiz behind an in-page tab
@@ -140,45 +249,61 @@ LUS = {
         "name": "Introduction to Philosophy",
         "rows": "div",
         "modules": [
-            ("Module 1: Foundations", True, [
-                ("11", "1.1", "What is Philosophy?", {"kind": "native", "start": True}),
-                ("12", "1.2", "The Socratic Method", {"kind": "native", "start": True}),
-                ("13", "1.3", "Reflection: Know Thyself", {"kind": "task"}),
-            ]),
-            ("Module 2: Ethics", False, [
-                ("21", "2.1", "Virtue Ethics", {"kind": "aria", "start": False}),
-                ("22", "2.2", "Ethics in Code", {"kind": "task"}),
-                ("23", "2.3", "Utilitarianism", {"kind": "div", "start": False, "tab": True}),
-                ("24", "2.4", "Reading: Kant", {"kind": "reading"}),
-                ("25", "2.5", "Case Study: Conscious Machines", {"kind": "task"}),
-            ]),
+            (
+                "Module 1: Foundations",
+                True,
+                [
+                    ("11", "1.1", "What is Philosophy?", {"kind": "native", "start": True}),
+                    ("12", "1.2", "The Socratic Method", {"kind": "native", "start": True}),
+                    ("13", "1.3", "Reflection: Know Thyself", {"kind": "task"}),
+                ],
+            ),
+            (
+                "Module 2: Ethics",
+                False,
+                [
+                    ("21", "2.1", "Virtue Ethics", {"kind": "aria", "start": False}),
+                    ("22", "2.2", "Ethics in Code", {"kind": "task"}),
+                    ("23", "2.3", "Utilitarianism", {"kind": "div", "start": False, "tab": True}),
+                    ("24", "2.4", "Reading: Kant", {"kind": "reading"}),
+                    ("25", "2.5", "Case Study: Conscious Machines", {"kind": "task"}),
+                ],
+            ),
         ],
     },
     "2506": {
         "name": "Data Structures",
         "rows": "a",
         "modules": [
-            ("", True, [
-                ("11", "1.1", "Arrays", {"kind": "native", "start": True, "iframe": True}),
-                ("12", "1.2", "Linked Lists", {"kind": "native", "start": True}),
-                ("13", "1.3", "Stacks", {"kind": "native", "start": True}),
-                ("14", "1.4", "Queues", {"kind": "native", "start": True, "checks": True}),
-            ]),
+            (
+                "",
+                True,
+                [
+                    ("11", "1.1", "Arrays", {"kind": "native", "start": True, "iframe": True}),
+                    ("12", "1.2", "Linked Lists", {"kind": "native", "start": True}),
+                    ("13", "1.3", "Stacks", {"kind": "native", "start": True}),
+                    ("14", "1.4", "Queues", {"kind": "native", "start": True, "checks": True}),
+                ],
+            ),
         ],
     },
     "2507": {
         "name": "Web Development",
-        "rows": "react",        # anchors to an overview card, split LU numbers, colour-only done marker
+        "rows": "react",  # anchors to an overview card, split LU numbers, colour-only done marker
         "modules": [
-            ("Module 1: Building for the web", True, [
-                ("11", "1.1", "Learning Journal", {"kind": "task"}),
-                ("12", "1.2", "FizzBuzz", {"kind": "task"}),
-                ("13", "1.3", "Sum of Two Numbers", {"kind": "task"}),
-                ("14", "1.4", "Portfolio Website", {"kind": "task"}),
-                ("15", "1.5", "HTML Basics", {"kind": "task"}),
-                ("16", "1.6", "Demo Day", {"kind": "task"}),
-                ("17", "1.7", "Two Sum (C++)", {"kind": "task"}),
-            ]),
+            (
+                "Module 1: Building for the web",
+                True,
+                [
+                    ("11", "1.1", "Learning Journal", {"kind": "task"}),
+                    ("12", "1.2", "FizzBuzz", {"kind": "task"}),
+                    ("13", "1.3", "Sum of Two Numbers", {"kind": "task"}),
+                    ("14", "1.4", "Portfolio Website", {"kind": "task"}),
+                    ("15", "1.5", "HTML Basics", {"kind": "task"}),
+                    ("16", "1.6", "Demo Day", {"kind": "task"}),
+                    ("17", "1.7", "Two Sum (C++)", {"kind": "task"}),
+                ],
+            ),
         ],
     },
 }
@@ -416,14 +541,19 @@ function open() {
 })();
 """
 
-COMMENTS = ('<section class="comments"><h4>Discussion</h4><p>Ask doubts or share thoughts with your batch.</p>'
-            '<textarea rows="3" cols="60" placeholder="Add a comment..."></textarea><br>'
-            '<button class="btn">Post</button></section>')
+COMMENTS = (
+    '<section class="comments"><h4>Discussion</h4><p>Ask doubts or share thoughts with your batch.</p>'
+    '<textarea rows="3" cols="60" placeholder="Add a comment..."></textarea><br>'
+    '<button class="btn">Post</button></section>'
+)
 
 
 def judge(code: str) -> tuple[int, str]:
-    tests = [("fizzbuzz(3)[-1] == 'Fizz'", "Fizz" in code), ("fizzbuzz(5)[-1] == 'Buzz'", "Buzz" in code),
-             ("fizzbuzz(15)[-1] == 'FizzBuzz'", "% 15" in code or "FizzBuzz" in code)]
+    tests = [
+        ("fizzbuzz(3)[-1] == 'Fizz'", "Fizz" in code),
+        ("fizzbuzz(5)[-1] == 'Buzz'", "Buzz" in code),
+        ("fizzbuzz(15)[-1] == 'FizzBuzz'", "% 15" in code or "FizzBuzz" in code),
+    ]
     lines = [f"Test {i}: {'passed' if ok else 'failed - ' + name}" for i, (name, ok) in enumerate(tests, 1)]
     passed = sum(ok for _, ok in tests)
     return passed, "\n".join(lines + [f"{passed}/{len(tests)} test cases passed"])
@@ -441,15 +571,15 @@ class Portal:
             self.submissions[("2505", "11")] = [{"answers": None, "score": 5}]
             self.submissions[("2506", "12")] = [{"answers": None, "score": 4}]
             self.submissions[("2506", "13")] = [{"answers": None, "score": 5}]
-            self.tasks: dict = {}    # (lb, lu) -> submitted fields
-            self.runs: list = []     # code sent to Run Tests
-            self.saved: dict = {}    # (lb, lu) -> last saved draft
-            self.reviewed: set = set()   # pre-submission reviews completed
+            self.tasks: dict = {}  # (lb, lu) -> submitted fields
+            self.runs: list = []  # code sent to Run Tests
+            self.saved: dict = {}  # (lb, lu) -> last saved draft
+            self.reviewed: set = set()  # pre-submission reviews completed
 
     def lu_done(self, lb, lu) -> bool:
         info = self.lu_info(lb, lu)
         if lb == "2506" and lu == "12":
-            return False   # quiz submitted but the LU still has other work
+            return False  # quiz submitted but the LU still has other work
         if info["kind"] == "task":
             return (lb, lu) in self.tasks
         return info["kind"] in ("native", "aria", "div") and bool(self.submissions.get((lb, lu)))
@@ -490,15 +620,17 @@ def page(title, body, head=""):
 
 
 def header():
-    return ('<header><nav><a href="/livebooks?semester=5">Livebooks</a><a href="/quizzes">Quiz</a>'
-            '<a href="/profile">Profile</a><input type="text" placeholder="Search"></nav></header>')
+    return (
+        '<header><nav><a href="/livebooks?semester=5">Livebooks</a><a href="/quizzes">Quiz</a>'
+        '<a href="/profile">Profile</a><input type="text" placeholder="Search"></nav></header>'
+    )
 
 
 def task_field(f: dict, locked: dict | None) -> str:
     e = html.escape
     val = (locked or {}).get(f["name"], f["value"])
     dis = " disabled" if locked else ""
-    q = f'<p>{e(f["question"])}</p>' if f["question"] else ""
+    q = f"<p>{e(f['question'])}</p>" if f["question"] else ""
     attrs = f'data-task-field="{f["name"]}"'
     t = f["type"]
     if t == "textarea":
@@ -506,29 +638,37 @@ def task_field(f: dict, locked: dict | None) -> str:
     if t in ("rich", "plain_rich"):
         cls = "ProseMirror rich" if t == "rich" else "rich"
         ce = "false" if locked else "true"
-        return (f'<div class="q">{q}<div class="{cls}" contenteditable="{ce}" role="textbox" aria-multiline="true" '
-                f'aria-label="{e(f["label"])}" {attrs}>{e(val)}</div></div>')
+        return (
+            f'<div class="q">{q}<div class="{cls}" contenteditable="{ce}" role="textbox" aria-multiline="true" '
+            f'aria-label="{e(f["label"])}" {attrs}>{e(val)}</div></div>'
+        )
     if t == "cm5":
         ro = ' aria-readonly="true"' if locked else ""
-        return (f'<div class="q">{q}<label>Language <select><option selected>Python 3</option><option>JavaScript</option>'
-                f'</select></label><div class="CodeMirror" data-cm data-value="{e(val)}" {attrs}{ro}>'
-                '<div class="CodeMirror-code"></div></div></div>')
+        return (
+            f'<div class="q">{q}<label>Language <select><option selected>Python 3</option><option>JavaScript</option>'
+            f'</select></label><div class="CodeMirror" data-cm data-value="{e(val)}" {attrs}{ro}>'
+            '<div class="CodeMirror-code"></div></div></div>'
+        )
     if t == "code_textarea":
         return f'<div class="q">{q}<textarea class="code-input" name="code" rows="6" cols="60" {attrs}{dis}>{e(val)}</textarea></div>'
     if t == "monaco":
         ro = ' aria-readonly="true"' if locked else ""
-        return (f'<div class="q">{q}<div class="toolbar"><button class="btn lang">CPP</button></div>'
-                f'<div class="monaco-editor" data-uri="inmemory://model/1" {attrs}{ro} style="min-height:90px;border:1px solid #999">'
-                f'<div class="view-lines" style="font-family:monospace;white-space:pre">{e(val)}</div></div></div>')
+        return (
+            f'<div class="q">{q}<div class="toolbar"><button class="btn lang">CPP</button></div>'
+            f'<div class="monaco-editor" data-uri="inmemory://model/1" {attrs}{ro} style="min-height:90px;border:1px solid #999">'
+            f'<div class="view-lines" style="font-family:monospace;white-space:pre">{e(val)}</div></div></div>'
+        )
     typ = "url" if t == "url" else "text"
-    fid = f["fid"] or f'f_{f["name"]}'
+    fid = f["fid"] or f"f_{f['name']}"
     label = f'<label for="{fid}">{e(f["label"])}</label><br>' if f["label"] else ""
-    return (f'<div class="q">{q}{label}<input id="{fid}" type="{typ}" '
-            f'size="60" placeholder="{e(f["placeholder"])}" value="{e(val)}" {attrs}{dis}></div>')
+    return (
+        f'<div class="q">{q}{label}<input id="{fid}" type="{typ}" '
+        f'size="60" placeholder="{e(f["placeholder"])}" value="{e(val)}" {attrs}{dis}></div>'
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
-    portal: Portal = None   # set by serve()
+    portal: Portal = None  # set by serve()
 
     def log_message(self, *a):
         pass
@@ -571,7 +711,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, "{}", "application/json")
         if u.path == "/api/run":
             passed, output = judge(body.get("code") or "")
-            self.portal.runs.append({"lu": f'{body["lb"]}/{body["lu"]}', "passed": passed})
+            self.portal.runs.append({"lu": f"{body['lb']}/{body['lu']}", "passed": passed})
             return self._send(200, json.dumps({"output": output}), "application/json")
         self._send(404, "not found")
 
@@ -579,12 +719,18 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         if u.path == "/login":
-            return self._send(200, page("Login", """
+            return self._send(
+                200,
+                page(
+                    "Login",
+                    """
 <main><h2>Sign in to Kalvium (mock)</h2><button id="g">Continue with Google</button>
 <script>
 function go(){document.cookie='kqb_session=1; path=/; max-age=86400'; location.href='/livebooks?semester=5';}
 document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" logs in after 2.5 s
-</script></main>"""))
+</script></main>""",
+                ),
+            )
         if u.path == "/api/state":
             return self._send(200, json.dumps(self.portal.state()), "application/json")
         if not self._authed():
@@ -612,8 +758,10 @@ document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" lo
         cards = ""
         if sem == "5":
             for lb, d in LUS.items():
-                cards += (f'<div class="card" data-testid="livebook-card"><a href="/livebooks/{lb}"><h3>{d["name"]}</h3></a>'
-                          f'<p>40% complete</p><a class="btn" href="/livebooks/{lb}">Continue</a></div>')
+                cards += (
+                    f'<div class="card" data-testid="livebook-card"><a href="/livebooks/{lb}"><h3>{d["name"]}</h3></a>'
+                    f'<p>40% complete</p><a class="btn" href="/livebooks/{lb}">Continue</a></div>'
+                )
         body = f"""{header()}<main><h2>Livebooks</h2><select><option>Semester 5</option></select>
 <div id="grid"></div><script>setTimeout(()=>{{document.getElementById('grid').innerHTML={json.dumps(cards)};}},400);</script></main>"""
         return page("Livebooks", body)
@@ -626,30 +774,41 @@ document.getElementById('g').onclick=go; setTimeout(go, 2500);  // the "user" lo
             for luid, num, t, _info in rows:
                 done = self.portal.lu_done(lb, luid)
                 if d["rows"] == "div":
-                    icon = ('<svg class="lucide lucide-check-circle" aria-label="Completed" width="12" height="12"></svg>'
-                            if done else '<svg class="lucide lucide-circle" aria-label="Not completed" width="12" height="12"></svg>')
-                    items += (f'<div class="lu-item" data-testid="lu-item" role="button" tabindex="0" '
-                              f'onclick="location.href=\'/livebooks/{lb}/lu/{luid}\'">'
-                              f'<span class="lu-num">{num}</span> <span class="lu-title">{t}</span> {icon}</div>')
+                    icon = (
+                        '<svg class="lucide lucide-check-circle" aria-label="Completed" width="12" height="12"></svg>'
+                        if done
+                        else '<svg class="lucide lucide-circle" aria-label="Not completed" width="12" height="12"></svg>'
+                    )
+                    items += (
+                        f'<div class="lu-item" data-testid="lu-item" role="button" tabindex="0" '
+                        f"onclick=\"location.href='/livebooks/{lb}/lu/{luid}'\">"
+                        f'<span class="lu-num">{num}</span> <span class="lu-title">{t}</span> {icon}</div>'
+                    )
                 elif d["rows"] == "react":
                     major, minor = num.split(".")
                     colour = "bg-[#16a34a]" if done else "bg-[#e5e7eb]"
-                    items += (f'<a class="lu-item flex" href="/livebooks/{lb}/{uuid_for(lb, luid)}">'
-                              f'<span class="dot {colour}"></span><span class="lu-num">{major}<!-- -->.<!-- -->{minor}</span>'
-                              f' <span class="lu-title">{t}</span></a>')
+                    items += (
+                        f'<a class="lu-item flex" href="/livebooks/{lb}/{uuid_for(lb, luid)}">'
+                        f'<span class="dot {colour}"></span><span class="lu-num">{major}<!-- -->.<!-- -->{minor}</span>'
+                        f' <span class="lu-title">{t}</span></a>'
+                    )
                 else:
                     pct = "100%" if done else ("40%" if luid == "12" else "0%")
-                    items += (f'<a class="lu-item" href="/livebooks/{lb}/lu/{luid}"><span>{num} {t}</span>'
-                              f'<span class="pct">{pct}</span></a><br>')
+                    items += (
+                        f'<a class="lu-item" href="/livebooks/{lb}/lu/{luid}"><span>{num} {t}</span>'
+                        f'<span class="pct">{pct}</span></a><br>'
+                    )
             if title:
                 hid = "" if expanded else " hidden"
-                mods += (f'<div class="module"><button class="module-toggle" aria-expanded="{str(expanded).lower()}" '
-                         f'onclick="const b=this;b.setAttribute(\'aria-expanded\',b.getAttribute(\'aria-expanded\')===\'true\'?\'false\':\'true\');'
-                         f'b.nextElementSibling.classList.toggle(\'hidden\')">{title}</button>'
-                         f'<div class="lus{hid}">{items}</div></div>')
+                mods += (
+                    f'<div class="module"><button class="module-toggle" aria-expanded="{str(expanded).lower()}" '
+                    f"onclick=\"const b=this;b.setAttribute('aria-expanded',b.getAttribute('aria-expanded')==='true'?'false':'true');"
+                    f"b.nextElementSibling.classList.toggle('hidden')\">{title}</button>"
+                    f'<div class="lus{hid}">{items}</div></div>'
+                )
             else:
                 mods += f'<div class="module"><div class="lus">{items}</div></div>'
-        body = f"""{header()}<main><h2>{d['name']}</h2>
+        body = f"""{header()}<main><h2>{d["name"]}</h2>
 <div role="tablist"><button role="tab" aria-selected="true" id="t1">Overview</button><button role="tab" id="t2">Learning Path</button></div>
 <div id="panel"><p>Overview of the course. 1.5 hours per week.</p></div>
 <script>
@@ -664,29 +823,43 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
         subs = self.portal.submissions.get((lb, lu))
         already = {"already": True, "score": subs[-1]["score"], "total": len(qs)} if subs else None
         checks = [{k: q[k] for k in ("text", "options", "code", "multi")} for q in CHECKS.get((lb, lu), [])]
-        data = {"lb": lb, "lu": lu, "variant": info["kind"], "start": info.get("start", False),
-                "questions": qs, "already": already, "checks": checks}
-        block = (f'<div id="quiz-root"></div><script>window.QUIZ={json.dumps(data)};</script>'
-                 f'<script>{QUIZ_ENGINE}</script>')
+        data = {
+            "lb": lb,
+            "lu": lu,
+            "variant": info["kind"],
+            "start": info.get("start", False),
+            "questions": qs,
+            "already": already,
+            "checks": checks,
+        }
+        block = (
+            f'<div id="quiz-root"></div><script>window.QUIZ={json.dumps(data)};</script><script>{QUIZ_ENGINE}</script>'
+        )
         return page("Quiz", f"<main>{block}</main>") if standalone else block
 
     def overview(self, lb, lu):
         info = self.portal.lu_info(lb, lu)
-        body = (f'{header()}<main><div class="card"><h2>{html.escape(info["title"])}</h2><p>Estimated time: 45 min</p>'
-                f'<button class="btn" aria-label="Go to Lessons" onclick="location.href=location.pathname+\'/lessons\'">'
-                'Go to Lessons</button></div></main>')
+        body = (
+            f'{header()}<main><div class="card"><h2>{html.escape(info["title"])}</h2><p>Estimated time: 45 min</p>'
+            f'<button class="btn" aria-label="Go to Lessons" onclick="location.href=location.pathname+\'/lessons\'">'
+            "Go to Lessons</button></div></main>"
+        )
         return page(info["title"], body)
 
     def workspace_doc(self, lb, lu, spec):
         submitted = self.portal.tasks.get((lb, lu))
         data = {"lb": lb, "lu": lu, "brief": spec["brief"], "prev": (submitted or {}).get("answer", "")}
         if submitted:
-            head = ("<div class='result'><p>Well done! You've completed this assignment successfully.</p>"
-                    "<p>Best Score</p><p>9/10</p><button class='btn' data-ws-start>Retake Assignment</button></div>")
+            head = (
+                "<div class='result'><p>Well done! You've completed this assignment successfully.</p>"
+                "<p>Best Score</p><p>9/10</p><button class='btn' data-ws-start>Retake Assignment</button></div>"
+            )
         else:
-            head = ('<div class="intro"><h3>Assignment</h3><p>Graded out of 10.</p>'
-                    '<button class="btn" data-ws-start>Start Assignment</button></div>')
-        return f'{head}<script>window.TASK={json.dumps(data)};</script><script>{WORKSPACE_ENGINE}</script>'
+            head = (
+                '<div class="intro"><h3>Assignment</h3><p>Graded out of 10.</p>'
+                '<button class="btn" data-ws-start>Start Assignment</button></div>'
+            )
+        return f"{head}<script>window.TASK={json.dumps(data)};</script><script>{WORKSPACE_ENGINE}</script>"
 
     def task_doc(self, lb, lu):
         spec = TASKS[(lb, lu)]
@@ -698,22 +871,36 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
             actions = '<p class="status">Submitted on 06 Oct 2026. View your submission above.</p>'
         else:
             run = '<button class="btn" data-task-run>Run Tests</button>' if spec.get("run") else ""
-            actions = (f'<div class="actions">{run}<button class="btn" data-task-submit>Submit Assignment</button></div>'
-                       '<pre class="output"></pre><p class="status"></p>')
+            actions = (
+                f'<div class="actions">{run}<button class="btn" data-task-submit>Submit Assignment</button></div>'
+                '<pre class="output"></pre><p class="status"></p>'
+            )
         hidden = " hidden" if spec.get("start") and not locked else ""
-        start = ('<div class="intro"><p>This assignment is timed once you start.</p>'
-                 '<button class="btn" data-task-start>Start Assignment</button></div>') if hidden else ""
+        start = (
+            (
+                '<div class="intro"><p>This assignment is timed once you start.</p>'
+                '<button class="btn" data-task-start>Start Assignment</button></div>'
+            )
+            if hidden
+            else ""
+        )
         data = {"lb": lb, "lu": lu, "confirm": bool(spec.get("confirm"))}
-        return (f'{start}<div class="assignment{hidden}" data-task-form><h3>Assignment</h3>{fields}{actions}</div>'
-                f'<script>window.TASK={json.dumps(data)};</script><script>{TASK_ENGINE}</script>')
+        return (
+            f'{start}<div class="assignment{hidden}" data-task-form><h3>Assignment</h3>{fields}{actions}</div>'
+            f"<script>window.TASK={json.dumps(data)};</script><script>{TASK_ENGINE}</script>"
+        )
 
     def lu_page(self, lb, lu):
         info = self.portal.lu_info(lb, lu)
         side = "".join(
-            f'<div>{num} {t} - {"Quiz completed" if self.portal.lu_done(lb, luid) else "Open"}</div>'
-            for _, _, rows in LUS[lb]["modules"] for luid, num, t, _ in rows)
-        reading = ("<h2>{}</h2><p>Reading material. In one survey 3/5 philosophers agreed. "
-                   "Arguments pass by reference to earlier ideas.</p>").format(html.escape(info["title"]))
+            f"<div>{num} {t} - {'Quiz completed' if self.portal.lu_done(lb, luid) else 'Open'}</div>"
+            for _, _, rows in LUS[lb]["modules"]
+            for luid, num, t, _ in rows
+        )
+        reading = (
+            "<h2>{}</h2><p>Reading material. In one survey 3/5 philosophers agreed. "
+            "Arguments pass by reference to earlier ideas.</p>"
+        ).format(html.escape(info["title"]))
         kind = info["kind"]
         if kind in ("native", "aria", "div"):
             if info.get("iframe"):
@@ -721,20 +908,29 @@ document.getElementById('t2').onclick=()=>{{document.getElementById('panel').inn
             else:
                 task = self.quiz_doc(lb, lu)
             if kind == "aria":
-                task += ('<div class="feedback"><p>How would you rate this LU?</p><div role="radiogroup" aria-label="Rating">'
-                         + "".join(f'<span role="radio" aria-checked="false" aria-label="{i} star" tabindex="0">&#9733;</span>'
-                                   for i in range(1, 6)) + '</div><button class="btn">Send</button></div>')
+                task += (
+                    '<div class="feedback"><p>How would you rate this LU?</p><div role="radiogroup" aria-label="Rating">'
+                    + "".join(
+                        f'<span role="radio" aria-checked="false" aria-label="{i} star" tabindex="0">&#9733;</span>'
+                        for i in range(1, 6)
+                    )
+                    + '</div><button class="btn">Send</button></div>'
+                )
             if info.get("tab"):
-                reading = (f'<div role="tablist"><button role="tab" id="tc">Content</button><button role="tab" id="tq">Quiz</button></div>'
-                           f'<div id="content">{reading}</div><div id="quizpane" class="hidden">{task}</div>'
-                           '<script>document.getElementById("tq").onclick=()=>{document.getElementById("quizpane").classList.remove("hidden");'
-                           'document.getElementById("content").classList.add("hidden");};</script>')
+                reading = (
+                    f'<div role="tablist"><button role="tab" id="tc">Content</button><button role="tab" id="tq">Quiz</button></div>'
+                    f'<div id="content">{reading}</div><div id="quizpane" class="hidden">{task}</div>'
+                    '<script>document.getElementById("tq").onclick=()=>{document.getElementById("quizpane").classList.remove("hidden");'
+                    'document.getElementById("content").classList.add("hidden");};</script>'
+                )
                 task = ""
         elif kind == "task":
             task = self.task_doc(lb, lu)
         else:
-            task = ('<button class="btn">Mark as complete</button>'
-                    '<iframe src="about:blank" title="video" style="width:200px;height:100px"></iframe>')
+            task = (
+                '<button class="btn">Mark as complete</button>'
+                '<iframe src="about:blank" title="video" style="width:200px;height:100px"></iframe>'
+            )
         body = f'{header()}<div class="wrap"><aside>{side}</aside><main>{reading}<div id="task">{task}</div>{COMMENTS}</main></div>'
         return page(info["title"], body)
 
