@@ -14,8 +14,11 @@ else
   echo "Linux: add  browser: {channel: chromium}  to config.yaml (or install Google Chrome)."
 fi
 [ -f .env ] || cp .env.example .env
+[ -f config.yaml ] || cp config.example.yaml config.yaml
+[ -f submissions.yaml ] || cp submissions.example.yaml submissions.yaml
 echo
 echo "Setup done. Next:"
 echo "  1. Put your Gemini API key in .env (GEMINI_API_KEY=...)"
 echo "  2. source .venv/bin/activate"
 echo "  3. kalbot doctor   then   kalbot discover"
+echo "  4. kalbot run --auto --fast"
