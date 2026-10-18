@@ -49,6 +49,24 @@ flowchart TD
 
 ## Setup
 
+### ⚡ 1-Prompt Setup for AI Editors (Cursor / Claude / Copilot / Windsurf)
+
+Paste this prompt directly into your AI assistant to automatically clone, install, configure, and launch the automation:
+
+```text
+Set up and run the Kalvium Quiz Automation project from https://github.com/Gaurav-205/Kalvium-Quiz-Automaion.git:
+1. Clone the repo into a folder named "kalbot" and navigate into it.
+2. Run the automated installer (`setup.bat` on Windows or `./setup.sh` on macOS/Linux).
+3. Ensure `.env`, `config.yaml`, and `submissions.yaml` are initialized from their example templates.
+4. Prompt me for my free Gemini API key (from https://aistudio.google.com/apikey) and set it in `.env` as `GEMINI_API_KEY=<key>`.
+5. Run `.\kalbot.bat doctor` (or `./.venv/bin/python -m kalbot doctor`) to verify all prerequisites pass.
+6. Launch `kalbot discover` for one-time login verification, and then run `.\kalbot.bat run --auto --fast`.
+```
+
+---
+
+### Manual Setup
+
 You need **Python 3.10+** ([python.org](https://www.python.org/downloads/); on Windows tick *Add
 python.exe to PATH*) and **Google Chrome**.
 
