@@ -34,6 +34,24 @@ def livebooks_url(cfg: dict) -> str:
 def launch_browser(p, cfg: dict):
     """Chrome with a persistent, dedicated profile so the login survives between runs."""
     b = cfg["browser"]
+    perf_flags = [
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-breakpad",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-domain-reliability",
+        "--disable-extensions",
+        "--disable-features=AudioServiceOutOfProcess,TranslateUI",
+        "--disable-hang-monitor",
+        "--disable-ipc-flooding-protection",
+        "--disable-renderer-backgrounding",
+        "--disable-sync",
+        "--force-color-profile=srgb",
+        "--metrics-recording-only",
+        "--no-first-run",
+    ]
     kw = dict(
         user_data_dir=str(path(cfg, "profile")),
         headless=bool(b.get("headless")),
@@ -42,9 +60,10 @@ def launch_browser(p, cfg: dict):
     )
     if b.get("headless"):
         kw["viewport"] = {"width": 1366, "height": 900}
+        kw["args"] = perf_flags
     else:
         kw["no_viewport"] = True
-        kw["args"] = ["--start-maximized"]
+        kw["args"] = ["--start-maximized"] + perf_flags
     if b.get("executable_path"):
         kw["executable_path"] = b["executable_path"]
     elif b.get("channel"):
@@ -53,6 +72,47 @@ def launch_browser(p, cfg: dict):
     ctx.set_default_timeout(cfg["timeouts"]["action_ms"])
     ctx.set_default_navigation_timeout(cfg["timeouts"]["navigation_ms"])
     ctx.add_init_script(JS_HELPERS)
+
+    fast = bool(cfg.get("run", {}).get("fast", False))
+    block_assets = bool(b.get("block_assets", fast))
+
+    # Abort third-party tracking and heavy media/fonts that slow down SPA loads
+    def _route_filter(route):
+        req = route.request
+        res_type = req.resource_type
+        url = req.url.lower()
+        if any(
+            d in url
+            for d in (
+                "google-analytics.com",
+                "googletagmanager.com",
+                "hotjar.com",
+                "segment.io",
+                "mixpanel.com",
+                "datadoghq.com",
+                "sentry.io",
+                "doubleclick.net",
+                "intercom.io",
+                "clarity.ms",
+            )
+        ):
+            try:
+                route.abort()
+            except Exception:
+                pass
+            return
+        if block_assets and res_type in ("image", "media", "font"):
+            try:
+                route.abort()
+            except Exception:
+                pass
+            return
+        try:
+            route.continue_()
+        except Exception:
+            pass
+
+    ctx.route("**/*", _route_filter)
     return ctx
 
 
@@ -107,6 +167,7 @@ class PageOps:
         self.jscfg = js_config(cfg)
         d = cfg["delays"]
         self.lo, self.hi = float(d["action_min_s"]), float(d["action_max_s"])
+        self.fast = bool(cfg.get("run", {}).get("fast", False))
         self.expect_confirm = False  # accept the next native confirm() (after clicking Submit)
         portal = urlparse(cfg["portal"]["base_url"]).hostname or ""
         self.hosts = {h for h in (portal, "kalvium.community", "kalvium.com", "127.0.0.1", "localhost") if h}
@@ -148,18 +209,31 @@ class PageOps:
     def call(self, scope, fn: str, *args):
         """window.__kqb.<fn>(*args) in a frame (main frame by default)."""
         scope = scope or self.page.main_frame
-        self.ensure(scope)
-        return scope.evaluate("([f, a]) => window.__kqb[f](...a)", [fn, list(args)])
+        try:
+            return scope.evaluate("([f, a]) => window.__kqb[f](...a)", [fn, list(args)])
+        except PWError as e:
+            msg = str(e)
+            if "__kqb" in msg or "undefined" in msg or "not a function" in msg:
+                self.ensure(scope)
+                return scope.evaluate("([f, a]) => window.__kqb[f](...a)", [fn, list(args)])
+            raise
 
     def eval(self, scope, expr: str, arg=None):
         scope = scope or self.page.main_frame
-        self.ensure(scope)
-        return scope.evaluate(expr, arg)
+        try:
+            return scope.evaluate(expr, arg)
+        except PWError as e:
+            msg = str(e)
+            if "__kqb" in msg or "undefined" in msg:
+                self.ensure(scope)
+                return scope.evaluate(expr, arg)
+            raise
 
     # ---------------------------------------------------------------- waiting
 
-    def poll(self, fn, timeout_ms: float, interval_ms: int = 300):
+    def poll(self, fn, timeout_ms: float, interval_ms: int | None = None):
         """Call fn until it returns something truthy or the timeout passes."""
+        interval = (25 if self.fast else 80) if interval_ms is None else interval_ms
         deadline = time.monotonic() + timeout_ms / 1000
         seen: set[str] = set()
         while True:
@@ -176,17 +250,23 @@ class PageOps:
                     log.warning("page check failed: %s", msg)
             if time.monotonic() > deadline:
                 return None
-            self.page.wait_for_timeout(interval_ms)
+            self.page.wait_for_timeout(interval)
 
     def pause(self) -> None:
-        """Random short pause between actions so the portal has time to settle."""
-        self.page.wait_for_timeout(random.uniform(self.lo, self.hi) * 1000)
+        """Short pause between actions so the portal has time to settle."""
+        if self.fast or (self.lo <= 0 and self.hi <= 0):
+            return
+        duration = random.uniform(self.lo, self.hi)
+        if duration >= 0.01:
+            self.page.wait_for_timeout(duration * 1000)
 
     def settle(self) -> None:
-        try:
-            self.page.wait_for_load_state("networkidle", timeout=self.t["settle_ms"])
-        except PWTimeout:
-            pass  # SPAs with websockets or long polls never go fully idle
+        # In fast mode, skip network idle wait to avoid stalling on open websockets/polling
+        if not self.fast:
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=min(800, self.t.get("settle_ms", 1500)))
+            except PWTimeout:
+                pass
         try:
             # Deterministically wait for active loaders/spinners to finish if present
             spinners = self.page.locator(
@@ -194,7 +274,7 @@ class PageOps:
                 '.loading-spinner:visible, [data-loading="true"]:visible'
             )
             if spinners.count() > 0:
-                spinners.first.wait_for(state="hidden", timeout=min(2000, self.t["settle_ms"]))
+                spinners.first.wait_for(state="hidden", timeout=min(1500, self.t.get("settle_ms", 3000)))
         except (PWError, PWTimeout):
             pass
 
@@ -211,7 +291,8 @@ class PageOps:
                 msg = first_line(e)
                 if attempt < attempts:
                     log.warning("navigation to %s failed (attempt %d/%d): %s; retrying", url, attempt, attempts, msg)
-                    self.page.wait_for_timeout(1000 * attempt)
+                    delay = min(250 * attempt, 800) if self.fast else min(500 * attempt, 1500)
+                    self.page.wait_for_timeout(delay)
                     continue
                 raise
         if last_exc:
@@ -254,7 +335,8 @@ class PageOps:
                     )
                     if any(t in msg for t in ("intercepted", "another element")):
                         self.close_overlay()
-                    self.page.wait_for_timeout(300)
+                    delay = min(100 * attempt, 300) if self.fast else 200
+                    self.page.wait_for_timeout(delay)
                     continue
                 break
         raise UnexpectedState(f"could not click {what}: {first_line(last_exc)}") from None

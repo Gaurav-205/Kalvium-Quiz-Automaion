@@ -628,3 +628,81 @@ def test_pipeline_context_and_phases():
     assert pipeline.ctx.discover is True
     assert pipeline.ctx.dry_run is True
     assert pipeline.ctx.limit == 1
+
+
+def test_cli_fast_and_turbo_flags():
+    from kalbot import cli
+
+    args = cli.parse_args(["run", "--fast"])
+    assert args.fast is True
+
+    args_turbo = cli.parse_args(["run", "--turbo"])
+    assert args_turbo.fast is True
+
+    args_default = cli.parse_args(["run"])
+    assert getattr(args_default, "fast", False) is False
+
+
+def test_fast_mode_config_validation():
+    defaults = yaml.safe_load(config.DEFAULTS_FILE.read_text(encoding="utf-8"))
+
+    # Valid boolean
+    good = dict(defaults)
+    good["run"] = {**good.get("run", {}), "fast": True}
+    config.validate(good)
+
+    # Invalid type
+    bad = dict(defaults)
+    bad["run"] = {**bad.get("run", {}), "fast": "yes"}
+    with pytest.raises(config.ConfigError, match="run.fast"):
+        config.validate(bad)
+
+
+def test_pipeline_fast_mode_acceleration():
+    from argparse import Namespace
+    from pathlib import Path
+
+    from kalbot.pipeline import ExecutionPipeline
+
+    cfg = yaml.safe_load(config.DEFAULTS_FILE.read_text(encoding="utf-8"))
+    cfg["_meta"] = {"home": Path("."), "config_path": Path("config.yaml")}
+    args = Namespace(command="run", fast=True, dry_run=False, limit=0)
+    ui = StubUI()
+
+    pipeline = ExecutionPipeline(cfg, args, ui, Path("runs/test"), {"quiz": True})
+    assert pipeline.ctx.fast is True
+    assert cfg["delays"]["action_min_s"] == 0.0
+    assert cfg["delays"]["action_max_s"] == 0.05
+    assert cfg["llm"]["min_seconds_between_calls"] == 0.0
+    assert cfg["timeouts"]["settle_ms"] <= 800
+
+
+def test_pageops_fast_pause_and_poll():
+    from unittest.mock import MagicMock
+
+    from kalbot.browser import PageOps
+
+    cfg = yaml.safe_load(config.DEFAULTS_FILE.read_text(encoding="utf-8"))
+    cfg["run"]["fast"] = True
+    cfg["delays"]["action_min_s"] = 0.0
+    cfg["delays"]["action_max_s"] = 0.0
+
+    mock_page = MagicMock()
+    ops = PageOps(cfg, mock_page)
+    assert ops.fast is True
+
+    # Pause with 0 duration should bypass wait_for_timeout completely
+    ops.pause()
+    mock_page.wait_for_timeout.assert_not_called()
+
+    # Poll with default interval in fast mode should use 25ms
+    call_count = 0
+
+    def check():
+        nonlocal call_count
+        call_count += 1
+        return call_count >= 2
+
+    res = ops.poll(check, timeout_ms=500)
+    assert res is True
+    mock_page.wait_for_timeout.assert_called_with(25)

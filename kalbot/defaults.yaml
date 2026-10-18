@@ -27,6 +27,7 @@ run:
   dry_run_click_start: false       # dry-run: click "Start" to preview question 1 (no answers clicked)
   retake_on_fail: true             # retake a quiz at most once if it says failed / score below pass_fraction
   retake_completed: false          # same as --retake: also retake submitted quizzes without a perfect score
+  fast: false                      # turbo mode: minimal pauses, aggressive settling, zero LLM rate-limit gap
   pass_fraction: 0.6               # used only when the portal shows a score but no pass/fail text
   expected_questions: 5
   max_questions_per_quiz: 30       # safety stop
@@ -83,8 +84,8 @@ github:                            # creates a repo for "submit your GitHub repo
   enable_pages: true               # publish plain HTML/CSS/JS projects on GitHub Pages and use that as the live link
 
 delays:
-  action_min_s: 1.0                # random pause between actions
-  action_max_s: 2.0
+  action_min_s: 0.3                # pause between actions (set to 0 or use --fast for maximum speed)
+  action_max_s: 0.8
 
 timeouts:                          # milliseconds
   action_ms: 15000

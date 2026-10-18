@@ -114,6 +114,7 @@ example `setx GEMINI_API_KEY ...`) work too and take precedence.
 | `kalbot run --only quiz,written` | Only these kinds: `quiz`, `written`, `coding`, `links` |
 | `kalbot run --livebook "web" --lu 2.3` | One livebook / one LU (also re-checks an LU marked complete) |
 | `kalbot run --auto` | Hands-free: don't stop to review drafts |
+| `kalbot run --fast` (or `--turbo`) | Maximum speed: instant zero-gap pauses, rapid DOM polling, heavy asset blocking |
 | `kalbot run --retake` | Also retake submitted quizzes and assignments without full marks (Retake → Proceed, then a fresh answer); opens completed LUs too. A dry run never clicks Retake |
 | `kalbot run --semester 6` | Override `portal.semester` |
 | `kalbot discover` | Read-only exploration, snapshots, selectors |

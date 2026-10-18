@@ -64,12 +64,25 @@ class PipelineContext:
     github: GitHub | None = None
     runlog: RunLog | None = None
     phase: PipelinePhase = PipelinePhase.INIT
+    fast: bool = False
 
 
 class ExecutionPipeline:
     """Manages the end-to-end execution lifecycle of kalbot runs and discovery."""
 
     def __init__(self, cfg: dict, args: Any, ui: Any, run_dir: Path, enabled: dict[str, bool]):
+        fast = bool(getattr(args, "fast", False) or cfg.get("run", {}).get("fast", False))
+        if fast:
+            cfg.setdefault("delays", {})
+            cfg["delays"]["action_min_s"] = 0.0
+            cfg["delays"]["action_max_s"] = 0.05
+            cfg.setdefault("llm", {})
+            cfg["llm"]["min_seconds_between_calls"] = 0.0
+            cfg.setdefault("timeouts", {})
+            cfg["timeouts"]["settle_ms"] = min(cfg["timeouts"].get("settle_ms", 800), 800)
+            cfg.setdefault("run", {})
+            cfg["run"]["fast"] = True
+
         self.ctx = PipelineContext(
             cfg=cfg,
             args=args,
@@ -83,6 +96,7 @@ class ExecutionPipeline:
                 (bool(cfg["run"].get("review", True)) or getattr(args, "review", False))
                 and not getattr(args, "auto", False)
             ),
+            fast=fast,
         )
 
     def prepare_services(self) -> int | None:
@@ -133,6 +147,8 @@ class ExecutionPipeline:
                 ),
                 ("GitHub", "creates repos for repo-link tasks" if self.ctx.github else "off (no GITHUB_TOKEN)"),
             ]
+        if self.ctx.fast:
+            meta.append(("Speed", "TURBO / FAST (zero-gap, minimal waits)"))
         meta.append(("Output", str(self.ctx.run_dir)))
         self.ctx.meta = meta
         self.ctx.ui.banner(f"kalbot {__version__}", meta)

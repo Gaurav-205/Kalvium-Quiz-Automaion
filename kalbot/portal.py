@@ -265,7 +265,8 @@ class Navigator:
                 break
             clicked.add(texts[todo[0]])
             self.ops.click(None, f'[data-kqb-mod="{todo[0]}"]', f"module '{texts[todo[0]]}'")
-            self.page.wait_for_timeout(600)
+            wait_mod = 80 if getattr(self.ops, "fast", False) else 200
+            self.page.wait_for_timeout(wait_mod)
         return self.ops.poll(self.list_lus, self.t["list_ms"]) or []
 
     # ------------------------------------------------------------------ one LU

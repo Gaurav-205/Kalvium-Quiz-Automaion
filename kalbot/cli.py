@@ -63,6 +63,13 @@ def parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="also retake submitted quizzes that don't have full marks (opens completed LUs too)",
     )
+    run.add_argument(
+        "--fast",
+        "--turbo",
+        dest="fast",
+        action="store_true",
+        help="run at maximum speed (minimal pauses, aggressive settling, zero LLM rate-limit gap)",
+    )
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--auto", action="store_true", help="don't stop to review written/coding/link drafts")
     mode.add_argument("--review", action="store_true", help="always stop to review drafts (overrides run.review)")

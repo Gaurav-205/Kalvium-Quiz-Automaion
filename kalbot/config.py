@@ -193,6 +193,8 @@ def validate(cfg: dict) -> None:
                 raise ConfigError("run.login_timeout_minutes must be > 0")
         except (ValueError, TypeError):
             raise ConfigError("run.login_timeout_minutes must be a number") from None
+    if "fast" in run_cfg and not isinstance(run_cfg["fast"], bool):
+        raise ConfigError(f"run.fast must be a boolean (true/false), got {run_cfg['fast']!r}")
 
     # Tasks validation
     tasks_cfg = cfg.get("tasks", {})

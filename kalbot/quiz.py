@@ -327,11 +327,12 @@ class QuizSolver:
         """Wait for the question text/options to change after clicking Next."""
         try:
             self.ops.ensure(frame)
+            polling_interval = 50 if getattr(self.ops, "fast", False) else 100
             frame.wait_for_function(
                 "a => !!window.__kqb && window.__kqb.fingerprint(a.cfg) !== a.prev",
                 arg={"cfg": self.ops.jscfg, "prev": prev_fp},
                 timeout=min(self.t["question_change_ms"], 10000),
-                polling=250,
+                polling=polling_interval,
             )
         except PWError as e:  # timed out (checked below), or the frame navigated: re-locate
             log.debug("wait_for_function: %s", first_line(e))
