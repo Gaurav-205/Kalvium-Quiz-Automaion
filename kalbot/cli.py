@@ -83,32 +83,37 @@ class RedactingFilter(logging.Filter):
         re.compile(r"github_pat_[0-9A-Za-z_]{60,}"),
         re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/-]+=*", re.I),
         re.compile(r"((?:api[_-]?key|token)\s*[:=]\s*['\"]?)[A-Za-z0-9-_]{12,}(['\"]?)", re.I),
+        re.compile(r"([?&](?:key|token|api_key|auth)=)[^&\s]+", re.I),
+        re.compile(r"(Authorization\s*:\s*(?:Bearer\s+)?)[^\r\n,\s]+", re.I),
     ]
+
+    def _redact_str(self, text: str) -> str:
+        for pat in self.PATTERNS:
+            text = pat.sub(r"[REDACTED_SECRET]", text)
+        return text
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
-            for pat in self.PATTERNS:
-                record.msg = pat.sub(r"[REDACTED_SECRET]", record.msg)
+            record.msg = self._redact_str(record.msg)
         if record.args:
             if isinstance(record.args, dict):
                 clean_dict = dict(record.args)
                 for k, v in clean_dict.items():
                     if isinstance(v, str):
-                        for pat in self.PATTERNS:
-                            v = pat.sub(r"[REDACTED_SECRET]", v)
-                        clean_dict[k] = v
+                        clean_dict[k] = self._redact_str(v)
                 record.args = clean_dict
-            elif isinstance(record.args, tuple):
+            elif isinstance(record.args, (tuple, list)):
                 new_args = []
                 for a in record.args:
                     if isinstance(a, str):
-                        val = a
-                        for pat in self.PATTERNS:
-                            val = pat.sub(r"[REDACTED_SECRET]", val)
-                        new_args.append(val)
+                        new_args.append(self._redact_str(a))
+                    elif isinstance(a, Exception):
+                        new_args.append(self._redact_str(str(a)))
                     else:
                         new_args.append(a)
-                record.args = tuple(new_args)
+                record.args = tuple(new_args) if isinstance(record.args, tuple) else new_args
+        if getattr(record, "exc_text", None) and isinstance(record.exc_text, str):
+            record.exc_text = self._redact_str(record.exc_text)
         return True
 
 
@@ -188,131 +193,17 @@ def main(argv=None) -> int:
 
 
 def run(cfg: dict, args, ui) -> int:
-    from playwright.sync_api import Error as PWError
-    from playwright.sync_api import sync_playwright
-
-    from .browser import PageOps, first_line, launch_browser
-    from .github import GitHub
-    from .links import LinkBook, State
-    from .llm import LLM, LLMError, make_provider
-    from .portal import Navigator
-    from .quiz import QuizSolver
-    from .report import write_report
-    from .runlog import RunLog
-    from .tasks import TaskSolver
-    from .ui import QuitRun
+    from .pipeline import ExecutionPipeline
 
     discover = args.command == "discover"
     dry = discover or getattr(args, "dry_run", False) or bool(cfg["run"].get("dry_run"))
-    limit = args.limit if getattr(args, "limit", None) is not None else int(cfg["run"].get("limit") or 0)
     enabled = task_filter(cfg, getattr(args, "only", None))
-    review = bool(cfg["run"].get("review", True)) or getattr(args, "review", False)
-    review = review and not getattr(args, "auto", False)
 
     run_dir = new_run_dir(path(cfg, "runs"), "_discover" if discover else "_dry-run" if dry else "")
     setup_logging(run_dir / "run.log", ui.c)
 
-    llm = None
-    prov = cfg["llm"]["provider"]
-    if not discover:
-        try:
-            llm = LLM(make_provider(cfg["llm"]), cfg)
-        except LLMError as e:
-            ui.error(str(e))
-            return 2
-    home = cfg["_meta"]["home"]
-    linkbook = LinkBook.load(home / cfg["links"]["file"])
-    for problem in linkbook.problems:
-        ui.warn(problem)
-    github = GitHub.from_config(cfg) if cfg["github"].get("auto_create") else None
-    meta = [("Mode", "DISCOVER (read-only)" if discover else "DRY-RUN (nothing is submitted)" if dry else "LIVE")]
-    if not discover:
-        meta += [
-            ("LLM", f"{prov} · {cfg['llm']['models'][prov]}"),
-            ("Doing", ", ".join(k for k in TASK_KINDS if enabled[k]) or "nothing"),
-            ("Review", "before each written/coding/link submission" if review else "off (--auto)"),
-            ("Limit", str(limit or "none")),
-            (
-                "Links",
-                f"{len(linkbook.entries)} LU{'s' * (len(linkbook.entries) != 1)} in {cfg['links']['file']}"
-                if linkbook.entries
-                else f"none yet ({cfg['links']['file']})",
-            ),
-            ("GitHub", "creates repos for repo-link tasks" if github else "off (no GITHUB_TOKEN)"),
-        ]
-    meta.append(("Output", str(run_dir)))
-    ui.banner(f"kalbot {__version__}", meta)
-
-    runlog = RunLog(run_dir)
-    code = 0
-    with sync_playwright() as p:
-        try:
-            context = launch_browser(p, cfg)
-        except PWError as e:
-            ui.error(f"Could not start Chrome: {first_line(e)}")
-            ui.note(
-                "Is another kalbot window still open (profile in use)? Is Chrome installed? "
-                "Try: python -m playwright install chrome"
-            )
-            runlog.close()
-            return 2
-        page = context.pages[0] if context.pages else context.new_page()
-        ops = PageOps(cfg, page)
-        quiz = QuizSolver(cfg, ops, llm, runlog, ui, run_dir / "snapshots", dry)
-        tasks = TaskSolver(
-            cfg,
-            ops,
-            llm,
-            runlog,
-            ui,
-            linkbook=linkbook,
-            state=State(path(cfg, "state")),
-            github=github,
-            run_dir=run_dir,
-            dry_run=dry,
-            review=review,
-            enabled=enabled,
-        )
-        nav = Navigator(
-            cfg,
-            ops,
-            quiz,
-            tasks,
-            runlog,
-            ui,
-            run_dir=run_dir,
-            dry_run=dry,
-            limit=limit,
-            livebook=getattr(args, "livebook", None),
-            lu=getattr(args, "lu", None),
-            enabled=enabled,
-        )
-        try:
-            nav.wait_for_login()
-            if discover:
-                nav.discover(cfg["_meta"]["config_path"])
-            else:
-                nav.run()
-        except (KeyboardInterrupt, QuitRun):
-            ui.warn("Stopped.")
-            code = 130
-        except LLMError as e:
-            ui.error(f"Stopping: {e}")
-            code = 2
-        except PWError as e:
-            ui.error(f"Browser error (was the window closed?): {first_line(e)}")
-            code = 1
-        finally:
-            runlog.close()
-            if not discover:
-                runlog.save_json()
-                report = write_report(run_dir / "report.html", runlog, meta)
-                ui.summary(runlog, report)
-            try:
-                context.close()
-            except Exception:
-                pass
-    return code
+    pipeline = ExecutionPipeline(cfg, args, ui, run_dir, enabled)
+    return pipeline.execute()
 
 
 # --------------------------------------------------------------------------- doctor

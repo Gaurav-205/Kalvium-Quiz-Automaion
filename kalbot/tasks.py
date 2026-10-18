@@ -633,7 +633,21 @@ class TaskSolver:
                 log.info("auto-generated image %s", out_file)
             else:
                 out_file = self.run_dir / f"solution_LU_{ctx['lu']}.pdf"
-                p.pdf(path=str(out_file), format="A4", print_background=True)
+                try:
+                    p.pdf(path=str(out_file), format="A4", print_background=True)
+                except PWError as e:
+                    if "headless" in str(e).lower():
+                        # Printing to PDF in Playwright requires headless mode; launch a temporary headless browser
+                        from playwright.sync_api import sync_playwright
+
+                        with sync_playwright() as p_hl:
+                            hl_browser = p_hl.chromium.launch(headless=True)
+                            hl_page = hl_browser.new_page()
+                            hl_page.set_content(html, wait_until="load")
+                            hl_page.pdf(path=str(out_file), format="A4", print_background=True)
+                            hl_browser.close()
+                    else:
+                        raise
                 log.info("auto-generated PDF %s", out_file)
             return str(out_file)
         except Exception as e:
@@ -810,6 +824,9 @@ class TaskSolver:
                 loc.fill(d.value)
             except PWError as e:
                 raise UnexpectedState(f"could not type into '{f.title}': {e}") from None
+            if not self.ops.poll(lambda: self._value_ok(frame, f, d.value), 1200, 200):
+                log.info("direct fill not fully verified in %s; falling back to keyboard type", f.title)
+                self._type(page, frame, f, d.value)
         elif not (f.tag == "editor" and self.ops.call(frame, "setEditor", f.index, d.value)):
             self._type(page, frame, f, d.value)
         if not self.ops.poll(lambda: self._value_ok(frame, f, d.value), 3000, 200):

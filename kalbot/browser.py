@@ -189,8 +189,11 @@ class PageOps:
             pass  # SPAs with websockets or long polls never go fully idle
         try:
             # Deterministically wait for active loaders/spinners to finish if present
-            spinners = self.page.locator('.animate-spin, [aria-busy="true"], .loading-spinner, [data-loading="true"]')
-            if spinners.count() > 0 and spinners.first.is_visible():
+            spinners = self.page.locator(
+                '.animate-spin:visible, [aria-busy="true"]:visible, '
+                '.loading-spinner:visible, [data-loading="true"]:visible'
+            )
+            if spinners.count() > 0:
                 spinners.first.wait_for(state="hidden", timeout=min(2000, self.t["settle_ms"]))
         except (PWError, PWTimeout):
             pass
@@ -222,6 +225,8 @@ class PageOps:
         last_exc: PWError | None = None
         for attempt in range(1, attempts + 1):
             try:
+                if hasattr(target_scope, "is_detached") and target_scope.is_detached():
+                    target_scope = self.page.main_frame
                 loc = target_scope.locator(selector).first
                 loc.scroll_into_view_if_needed(timeout=self.t["action_ms"])
                 loc.click(timeout=self.t["action_ms"])
@@ -247,6 +252,8 @@ class PageOps:
                     log.debug(
                         "transient click failure for %s (attempt %d/%d): %s; retrying", what, attempt, attempts, msg
                     )
+                    if any(t in msg for t in ("intercepted", "another element")):
+                        self.close_overlay()
                     self.page.wait_for_timeout(300)
                     continue
                 break

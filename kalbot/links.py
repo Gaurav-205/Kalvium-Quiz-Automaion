@@ -7,6 +7,7 @@ it has no real link for is left for the user.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import re
@@ -185,15 +186,43 @@ class State:
         """Read previous submission record for this LU."""
         return dict(self.data.get("submissions", {}).get(self.key(livebook, lu), {}))
 
-    def is_completed(self, livebook: str, lu: str) -> bool:
-        """True if an earlier run successfully completed and submitted this LU."""
+    def is_completed(self, livebook: str, lu: str, kind: str | None = None) -> bool:
+        """True if an earlier run successfully completed and submitted this LU (or specific subtask)."""
         sub = self.submission(livebook, lu)
+        if not sub:
+            return False
+        if kind:
+            subtasks = sub.get("subtasks") or {}
+            if kind in subtasks:
+                return bool(subtasks[kind].get("status") in ("submitted", "done"))
+            if sub.get("kind") == kind:
+                return bool(sub.get("status") in ("submitted", "done"))
+            return False
         return bool(sub.get("status") in ("submitted", "done"))
 
-    def save_submission(self, livebook: str, lu: str, info: dict) -> None:
-        """Record completed LU submission to ensure idempotency across runs."""
-        self.data.setdefault("submissions", {})[self.key(livebook, lu)] = info
+    def save_submission(self, livebook: str, lu: str, info: dict, kind: str | None = None) -> None:
+        """Record completed LU submission to ensure idempotency across runs with multi-subtask awareness."""
+        submissions = self.data.setdefault("submissions", {})
+        key = self.key(livebook, lu)
+        current = submissions.get(key) or {}
+        subtasks = current.get("subtasks") or {}
+
+        record = dict(info)
+        record.setdefault("updated_at", dt.datetime.now().isoformat(timespec="seconds"))
+        task_kind = kind or record.get("kind") or "task"
+        subtasks[task_kind] = dict(record)
+
+        # Merge onto current record while keeping latest status/result
+        merged = {**current, **record, "subtasks": subtasks}
+        submissions[key] = merged
         self._flush()
+
+    def clear_submission(self, livebook: str, lu: str) -> None:
+        """Remove recorded submission for an LU (e.g. when an active retake is initiated)."""
+        key = self.key(livebook, lu)
+        if "submissions" in self.data and key in self.data["submissions"]:
+            self.data["submissions"].pop(key, None)
+            self._flush()
 
     def _flush(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -200,6 +200,44 @@ def validate(cfg: dict) -> None:
         if not isinstance(task_enabled, bool):
             raise ConfigError(f"tasks.{task_name} must be a boolean (true/false), got {task_enabled!r}")
 
+    # Browser validation
+    b = cfg.get("browser", {})
+    if "headless" in b and not isinstance(b["headless"], bool):
+        raise ConfigError(f"browser.headless must be a boolean (true/false), got {b['headless']!r}")
+    if "slow_mo_ms" in b and b["slow_mo_ms"] is not None:
+        try:
+            if float(b["slow_mo_ms"]) < 0:
+                raise ConfigError("browser.slow_mo_ms must be >= 0")
+        except (ValueError, TypeError):
+            raise ConfigError("browser.slow_mo_ms must be a numeric value") from None
+
+    # GitHub validation
+    gh = cfg.get("github", {})
+    if "api_url" in gh and gh["api_url"]:
+        gh_url = str(gh["api_url"]).strip()
+        if not (gh_url.startswith("http://") or gh_url.startswith("https://")):
+            raise ConfigError(f"github.api_url must be a valid http(s) URL, got {gh_url!r}")
+    if "auto_create" in gh and not isinstance(gh["auto_create"], bool):
+        raise ConfigError(f"github.auto_create must be a boolean, got {gh['auto_create']!r}")
+
+    # Links validation
+    lk = cfg.get("links", {})
+    if "wait_for_live_site_s" in lk and lk["wait_for_live_site_s"] is not None:
+        try:
+            if float(lk["wait_for_live_site_s"]) < 0:
+                raise ConfigError("links.wait_for_live_site_s must be >= 0")
+        except (ValueError, TypeError):
+            raise ConfigError("links.wait_for_live_site_s must be a numeric value") from None
+
+    # Coding validation
+    cd = cfg.get("coding", {})
+    if "max_fix_rounds" in cd and cd["max_fix_rounds"] is not None:
+        try:
+            if int(cd["max_fix_rounds"]) < 0:
+                raise ConfigError("coding.max_fix_rounds must be >= 0")
+        except (ValueError, TypeError):
+            raise ConfigError("coding.max_fix_rounds must be an integer") from None
+
     # Regex patterns validation
     for group in ("patterns",):
         for name, pats in cfg[group].items():

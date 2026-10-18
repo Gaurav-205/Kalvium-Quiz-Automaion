@@ -275,15 +275,16 @@ it. No portal access or API key is needed.
 
 | Path | Purpose |
 |---|---|
-| `kalbot/cli.py` | Commands, run setup, `doctor` |
+| `kalbot/cli.py` | Command-line interface, argument parsing, `doctor` health checks |
+| `kalbot/pipeline.py` | `ExecutionPipeline` lifecycle manager (init, validation, auth, discovery, processing, cleanup, reporting) |
 | `kalbot/portal.py` | Login, livebooks, Learning Path, per-LU flow, discovery |
 | `kalbot/quiz.py` | Quiz solver: extract, ask, select + verify, Next/Submit, result, retake |
-| `kalbot/tasks.py` | Assignments: detect boxes, draft, review, fill + verify, run tests + fix, submit |
+| `kalbot/tasks.py` | Assignments: detect boxes, draft, review, fill + verify, run tests + fix, submit, lab PDF generation |
 | `kalbot/llm.py`, `prompts.py` | Providers (Gemini, Claude), prompts, reply parsing and validation |
-| `kalbot/links.py`, `github.py` | `submissions.yaml`, link kinds, repo creation and GitHub Pages |
+| `kalbot/links.py`, `github.py` | `submissions.yaml`, link kinds, persistent `State` journal, repo creation and GitHub Pages |
 | `kalbot/dom.js` | In-page detection of cards, LU rows, questions, options, answer boxes, editors, buttons |
 | `kalbot/ui.py`, `report.py`, `runlog.py` | Terminal output and review prompt, HTML report, CSV/JSON log |
-| `kalbot/config.py`, `defaults.yaml` | Settings: defaults + your `config.yaml` + `.env` |
+| `kalbot/config.py`, `defaults.yaml` | Settings: defaults + your `config.yaml` + `.env` validation |
 
 ## Responsible use
 

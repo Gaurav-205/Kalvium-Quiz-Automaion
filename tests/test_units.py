@@ -510,3 +510,121 @@ def test_linkbook_resolves_relative_file_paths(tmp_path):
     book = links.LinkBook.load(sub_yaml)
     assert len(book.problems) == 0
     assert book.lookup("Course", "1.1", "Title")["file"] == "sample.pdf"
+
+
+def test_state_multi_subtask_tracking_and_clear(tmp_path):
+    s = links.State(tmp_path / "runs" / "state.json")
+    assert not s.is_completed("DevOps", "2.1")
+    assert not s.is_completed("DevOps", "2.1", kind="quiz")
+    assert not s.is_completed("DevOps", "2.1", kind="written")
+
+    # Record quiz
+    s.save_submission("DevOps", "2.1", {"status": "submitted", "kind": "quiz", "result": "5/5"})
+    assert s.is_completed("DevOps", "2.1")
+    assert s.is_completed("DevOps", "2.1", kind="quiz")
+    assert not s.is_completed("DevOps", "2.1", kind="written")
+
+    # Record assignment in the same LU
+    s.save_submission("DevOps", "2.1", {"status": "submitted", "kind": "written", "result": "passed"})
+    assert s.is_completed("DevOps", "2.1")
+    assert s.is_completed("DevOps", "2.1", kind="quiz")
+    assert s.is_completed("DevOps", "2.1", kind="written")
+
+    # Check structure
+    sub = s.submission("DevOps", "2.1")
+    assert sub["status"] == "submitted"
+    assert "quiz" in sub["subtasks"] and "written" in sub["subtasks"]
+    assert sub["subtasks"]["quiz"]["result"] == "5/5"
+    assert sub["subtasks"]["written"]["result"] == "passed"
+    assert "updated_at" in sub
+
+    # Clear submission on retake
+    s.clear_submission("DevOps", "2.1")
+    assert not s.is_completed("DevOps", "2.1")
+    assert not s.is_completed("DevOps", "2.1", kind="quiz")
+
+
+def test_redacting_filter_tracebacks_and_query_parameters():
+    import logging
+
+    from kalbot.cli import RedactingFilter
+
+    f = RedactingFilter()
+
+    # Redact URL query parameters
+    rec_url = logging.LogRecord(
+        "test",
+        logging.INFO,
+        "test.py",
+        10,
+        "Calling https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSySecretKey123456789012345",
+        (),
+        None,
+    )
+    assert f.filter(rec_url)
+    assert "AIzaSy" not in rec_url.msg
+    assert "[REDACTED_SECRET]" in rec_url.msg
+
+    # Redact exc_text traceback
+    rec_exc = logging.LogRecord("test", logging.ERROR, "test.py", 20, "An error occurred", (), None)
+    rec_exc.exc_text = (
+        "Traceback (most recent call last):\n"
+        '  File "api.py", line 40, in request\n'
+        '    headers={"Authorization": "Bearer sk-ant-api03-verylongsecretkey12345"}\n'
+        "HTTPError: 401 Unauthorized"
+    )
+    assert f.filter(rec_exc)
+    assert "sk-ant-" not in rec_exc.exc_text
+    assert "[REDACTED_SECRET]" in rec_exc.exc_text
+
+
+def test_additional_config_validation():
+    defaults = yaml.safe_load(config.DEFAULTS_FILE.read_text(encoding="utf-8"))
+
+    # Invalid browser.headless
+    bad = dict(defaults)
+    bad["browser"] = {"headless": "not-bool"}
+    with pytest.raises(config.ConfigError, match="browser.headless"):
+        config.validate(bad)
+
+    # Invalid browser.slow_mo_ms
+    bad = dict(defaults)
+    bad["browser"] = {"slow_mo_ms": -10}
+    with pytest.raises(config.ConfigError, match="browser.slow_mo_ms"):
+        config.validate(bad)
+
+    # Invalid github.api_url
+    bad = dict(defaults)
+    bad["github"] = {"api_url": "ftp://github.local"}
+    with pytest.raises(config.ConfigError, match="github.api_url"):
+        config.validate(bad)
+
+    # Invalid links.wait_for_live_site_s
+    bad = dict(defaults)
+    bad["links"] = {"wait_for_live_site_s": -5}
+    with pytest.raises(config.ConfigError, match="links.wait_for_live_site_s"):
+        config.validate(bad)
+
+    # Invalid coding.max_fix_rounds
+    bad = dict(defaults)
+    bad["coding"] = {"max_fix_rounds": -1}
+    with pytest.raises(config.ConfigError, match="coding.max_fix_rounds"):
+        config.validate(bad)
+
+
+def test_pipeline_context_and_phases():
+    from argparse import Namespace
+    from pathlib import Path
+
+    from kalbot.pipeline import ExecutionPipeline, PipelinePhase
+
+    cfg = yaml.safe_load(config.DEFAULTS_FILE.read_text(encoding="utf-8"))
+    cfg["_meta"] = {"home": Path("."), "config_path": Path("config.yaml")}
+    args = Namespace(command="discover", dry_run=True, limit=1)
+    ui = StubUI()
+
+    pipeline = ExecutionPipeline(cfg, args, ui, Path("runs/test"), {"quiz": True, "written": True})
+    assert pipeline.ctx.phase == PipelinePhase.INIT
+    assert pipeline.ctx.discover is True
+    assert pipeline.ctx.dry_run is True
+    assert pipeline.ctx.limit == 1

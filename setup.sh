@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 command -v python3 >/dev/null || { echo "Python 3.10+ is required"; exit 1; }
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e ".[dev]"
 if [ "$(uname)" = "Darwin" ]; then
   .venv/bin/python -m playwright install chrome
 else
